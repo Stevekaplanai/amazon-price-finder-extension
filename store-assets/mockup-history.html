@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Price History - Screenshot</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+    }
+
+    .browser-frame {
+      background: #2d2d44;
+      border-radius: 12px;
+      box-shadow: 0 25px 80px rgba(0,0,0,0.5);
+      overflow: hidden;
+      width: 420px;
+      position: relative;
+    }
+
+    .browser-header {
+      background: #3d3d5c;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .browser-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    .browser-dot.red { background: #ff5f56; }
+    .browser-dot.yellow { background: #ffbd2e; }
+    .browser-dot.green { background: #27ca40; }
+
+    .panel-title {
+      color: white;
+      font-size: 14px;
+      margin-left: 12px;
+    }
+
+    .side-panel {
+      background: #f5f7fa;
+    }
+
+    .panel-header {
+      background: white;
+      padding: 16px;
+      border-bottom: 1px solid #e7e9ec;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .panel-header h2 {
+      font-size: 18px;
+      color: #232f3e;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin: 16px;
+      background: #e7e9ec;
+      padding: 4px;
+      border-radius: 10px;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 8px;
+      border: none;
+      background: transparent;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #6b7280;
+      cursor: pointer;
+    }
+
+    .tab.active {
+      background: white;
+      color: #232f3e;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .panel-content {
+      padding: 16px;
+    }
+
+    .history-card {
+      background: white;
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      cursor: pointer;
+    }
+
+    .product-name {
+      font-weight: 500;
+      color: #1f2937;
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+
+    .price-range {
+      font-size: 13px;
+      color: #6b7280;
+    }
+
+    .low { color: #059669; font-weight: 600; }
+    .high { color: #dc2626; font-weight: 600; }
+
+    .records {
+      color: #9ca3af;
+      margin-left: 8px;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      width: 100%;
+      max-width: 340px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .modal h3 {
+      font-size: 18px;
+    }
+
+    .close-btn {
+      padding: 4px;
+      background: transparent;
+      border: none;
+      color: #6b7280;
+      cursor: pointer;
+      font-size: 18px;
+    }
+
+    .modal-product {
+      font-size: 13px;
+      color: #6b7280;
+      margin-bottom: 16px;
+    }
+
+    .price-chart {
+      height: 140px;
+      background: #f9fafb;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-around;
+      gap: 6px;
+    }
+
+    .chart-bar {
+      flex: 1;
+      max-width: 16px;
+      background: #ff9900;
+      border-radius: 3px 3px 0 0;
+    }
+
+    .history-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .stat-item {
+      background: #f9fafb;
+      padding: 12px 8px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: #6b7280;
+      margin-bottom: 4px;
+    }
+
+    .stat-value {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .stat-value.low { color: #059669; }
+    .stat-value.avg { color: #2563eb; }
+    .stat-value.high { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <div class="browser-frame">
+    <div class="browser-header">
+      <div class="browser-dot red"></div>
+      <div class="browser-dot yellow"></div>
+      <div class="browser-dot green"></div>
+      <span class="panel-title">Amazon Price Finder</span>
+    </div>
+
+    <div class="side-panel">
+      <div class="panel-header">
+        <h2>Amazon Price Finder</h2>
+      </div>
+
+      <div class="tabs">
+        <button class="tab">Results</button>
+        <button class="tab">Alerts</button>
+        <button class="tab active">History</button>
+      </div>
+
+      <div class="panel-content">
+        <div class="history-card">
+          <div class="product-name">Sony WH-1000XM5 Wireless Headphones</div>
+          <div class="price-range">
+            <span class="low">$278.00</span> - <span class="high">$349.99</span>
+            <span class="records">(24 records)</span>
+          </div>
+        </div>
+
+        <div class="history-card">
+          <div class="product-name">Apple AirPods Pro (2nd Generation)</div>
+          <div class="price-range">
+            <span class="low">$189.99</span> - <span class="high">$249.00</span>
+            <span class="records">(18 records)</span>
+          </div>
+        </div>
+
+        <div class="history-card">
+          <div class="product-name">Samsung Galaxy Buds2 Pro</div>
+          <div class="price-range">
+            <span class="low">$149.99</span> - <span class="high">$229.99</span>
+            <span class="records">(12 records)</span>
+          </div>
+        </div>
+
+        <div class="history-card">
+          <div class="product-name">Bose QuietComfort 45 Headphones</div>
+          <div class="price-range">
+            <span class="low">$249.00</span> - <span class="high">$329.00</span>
+            <span class="records">(8 records)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- History Modal -->
+    <div class="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Price History</h3>
+          <button class="close-btn">✕</button>
+        </div>
+        <p class="modal-product">Sony WH-1000XM5 Wireless Noise Canceling Headphones</p>
+
+        <div class="price-chart">
+          <div class="chart-bar" style="height: 45%;"></div>
+          <div class="chart-bar" style="height: 55%;"></div>
+          <div class="chart-bar" style="height: 60%;"></div>
+          <div class="chart-bar" style="height: 50%;"></div>
+          <div class="chart-bar" style="height: 70%;"></div>
+          <div class="chart-bar" style="height: 100%;"></div>
+          <div class="chart-bar" style="height: 85%;"></div>
+          <div class="chart-bar" style="height: 75%;"></div>
+          <div class="chart-bar" style="height: 65%;"></div>
+          <div class="chart-bar" style="height: 40%;"></div>
+          <div class="chart-bar" style="height: 35%;"></div>
+          <div class="chart-bar" style="height: 20%;"></div>
+        </div>
+
+        <div class="history-stats">
+          <div class="stat-item">
+            <div class="stat-label">Lowest</div>
+            <div class="stat-value low">$278.00</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Average</div>
+            <div class="stat-value avg">$312.45</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Highest</div>
+            <div class="stat-value high">$349.99</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

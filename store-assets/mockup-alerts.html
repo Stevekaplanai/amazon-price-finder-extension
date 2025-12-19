@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Price Alerts - Screenshot</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+    }
+
+    .browser-frame {
+      background: #2d2d44;
+      border-radius: 12px;
+      box-shadow: 0 25px 80px rgba(0,0,0,0.5);
+      overflow: hidden;
+      width: 420px;
+    }
+
+    .browser-header {
+      background: #3d3d5c;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .browser-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    .browser-dot.red { background: #ff5f56; }
+    .browser-dot.yellow { background: #ffbd2e; }
+    .browser-dot.green { background: #27ca40; }
+
+    .panel-title {
+      color: white;
+      font-size: 14px;
+      margin-left: 12px;
+    }
+
+    .side-panel {
+      background: #f5f7fa;
+    }
+
+    .panel-header {
+      background: white;
+      padding: 16px;
+      border-bottom: 1px solid #e7e9ec;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .panel-header h2 {
+      font-size: 18px;
+      color: #232f3e;
+    }
+
+    .settings-btn {
+      padding: 6px;
+      background: transparent;
+      border: 1px solid #e7e9ec;
+      border-radius: 6px;
+      cursor: pointer;
+      color: #6b7280;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin: 16px;
+      background: #e7e9ec;
+      padding: 4px;
+      border-radius: 10px;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 8px;
+      border: none;
+      background: transparent;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #6b7280;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .tab.active {
+      background: white;
+      color: #232f3e;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .badge {
+      background: #ff9900;
+      color: white;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .panel-content {
+      padding: 16px;
+    }
+
+    .alert-card {
+      background: white;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .alert-card.price-dropped {
+      border-left: 4px solid #10b981;
+    }
+
+    .product-name {
+      font-weight: 500;
+      color: #1f2937;
+      margin-bottom: 12px;
+      font-size: 14px;
+    }
+
+    .alert-prices {
+      display: flex;
+      gap: 24px;
+      margin-bottom: 12px;
+    }
+
+    .price-item {
+      font-size: 12px;
+    }
+
+    .label {
+      color: #6b7280;
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .current {
+      color: #059669;
+      font-weight: 600;
+      font-size: 16px;
+    }
+
+    .target {
+      color: #dc2626;
+      font-weight: 600;
+      font-size: 16px;
+    }
+
+    .alert-status {
+      background: #dcfce7;
+      color: #166534;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .delete-btn {
+      width: 100%;
+      padding: 8px;
+      background: #fee2e2;
+      border: none;
+      border-radius: 6px;
+      color: #dc2626;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .view-btn {
+      width: 100%;
+      padding: 8px;
+      background: #ff9900;
+      border: none;
+      border-radius: 6px;
+      color: white;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+
+    /* Modal overlay */
+    .modal-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      width: 100%;
+      max-width: 300px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+    }
+
+    .modal h3 {
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+
+    .modal-product {
+      font-size: 13px;
+      color: #6b7280;
+      margin-bottom: 16px;
+    }
+
+    .modal-field {
+      margin-bottom: 16px;
+    }
+
+    .modal-field label {
+      display: block;
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 4px;
+    }
+
+    .modal-field .price {
+      font-size: 20px;
+      font-weight: 700;
+      color: #059669;
+    }
+
+    .modal-field input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 2px solid #ff9900;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .modal-actions button {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    .btn-cancel {
+      background: white;
+      border: 1px solid #e7e9ec;
+      color: #374151;
+    }
+
+    .btn-save {
+      background: #ff9900;
+      border: none;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <div class="browser-frame" style="position: relative;">
+    <div class="browser-header">
+      <div class="browser-dot red"></div>
+      <div class="browser-dot yellow"></div>
+      <div class="browser-dot green"></div>
+      <span class="panel-title">Amazon Price Finder</span>
+    </div>
+
+    <div class="side-panel">
+      <div class="panel-header">
+        <h2>Amazon Price Finder</h2>
+        <button class="settings-btn">⚙️</button>
+      </div>
+
+      <div class="tabs">
+        <button class="tab">Results</button>
+        <button class="tab active">Alerts <span class="badge">3</span></button>
+        <button class="tab">History</button>
+      </div>
+
+      <div class="panel-content">
+        <div class="alert-card price-dropped">
+          <div class="product-name">Sony WH-1000XM5 Wireless Noise Canceling Headphones</div>
+          <div class="alert-status">🎉 Price dropped! Now below target!</div>
+          <div class="alert-prices">
+            <div class="price-item">
+              <span class="label">Current Price</span>
+              <span class="current">$278.00</span>
+            </div>
+            <div class="price-item">
+              <span class="label">Your Target</span>
+              <span class="target">$300.00</span>
+            </div>
+          </div>
+          <button class="view-btn">View on Amazon</button>
+          <button class="delete-btn">Remove Alert</button>
+        </div>
+
+        <div class="alert-card">
+          <div class="product-name">Apple AirPods Pro (2nd Generation)</div>
+          <div class="alert-prices">
+            <div class="price-item">
+              <span class="label">Current Price</span>
+              <span class="current">$249.00</span>
+            </div>
+            <div class="price-item">
+              <span class="label">Your Target</span>
+              <span class="target">$199.00</span>
+            </div>
+          </div>
+          <button class="delete-btn">Remove Alert</button>
+        </div>
+
+        <div class="alert-card">
+          <div class="product-name">Samsung Galaxy Buds2 Pro</div>
+          <div class="alert-prices">
+            <div class="price-item">
+              <span class="label">Current Price</span>
+              <span class="current">$179.99</span>
+            </div>
+            <div class="price-item">
+              <span class="label">Your Target</span>
+              <span class="target">$149.99</span>
+            </div>
+          </div>
+          <button class="delete-btn">Remove Alert</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Overlay -->
+    <div class="modal-overlay">
+      <div class="modal">
+        <h3>Set Price Alert</h3>
+        <p class="modal-product">Sony WH-1000XM5 Wireless Industry Leading Noise Canceling Headphones</p>
+        <div class="modal-field">
+          <label>Current Price</label>
+          <span class="price">$298.00</span>
+        </div>
+        <div class="modal-field">
+          <label>Target Price</label>
+          <input type="text" value="268.00" />
+        </div>
+        <div class="modal-actions">
+          <button class="btn-cancel">Cancel</button>
+          <button class="btn-save">Set Alert</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
