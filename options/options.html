@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Amazon Price Finder - Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Amazon Price Finder</h1>
+      <p class="subtitle">Settings & Preferences</p>
+    </header>
+
+    <!-- Marketplace Selection -->
+    <section class="setting-group">
+      <h2>Amazon Marketplace</h2>
+      <p class="description">Select your preferred Amazon marketplace for price searches</p>
+
+      <div class="marketplace-grid">
+        <label class="marketplace-option">
+          <input type="radio" name="marketplace" value="com">
+          <span class="flag">🇺🇸</span>
+          <span class="name">Amazon.com</span>
+          <span class="region">United States</span>
+        </label>
+
+        <label class="marketplace-option">
+          <input type="radio" name="marketplace" value="co.uk">
+          <span class="flag">🇬🇧</span>
+          <span class="name">Amazon.co.uk</span>
+          <span class="region">United Kingdom</span>
+        </label>
+
+        <label class="marketplace-option">
+          <input type="radio" name="marketplace" value="de">
+          <span class="flag">🇩🇪</span>
+          <span class="name">Amazon.de</span>
+          <span class="region">Germany</span>
+        </label>
+
+        <label class="marketplace-option">
+          <input type="radio" name="marketplace" value="fr">
+          <span class="flag">🇫🇷</span>
+          <span class="name">Amazon.fr</span>
+          <span class="region">France</span>
+        </label>
+
+        <label class="marketplace-option">
+          <input type="radio" name="marketplace" value="ca">
+          <span class="flag">🇨🇦</span>
+          <span class="name">Amazon.ca</span>
+          <span class="region">Canada</span>
+        </label>
+
+        <label class="marketplace-option">
+          <input type="radio" name="marketplace" value="co.jp">
+          <span class="flag">🇯🇵</span>
+          <span class="name">Amazon.co.jp</span>
+          <span class="region">Japan</span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Price Alerts -->
+    <section class="setting-group">
+      <h2>Price Alerts</h2>
+      <p class="description">Get notified when prices drop below your target</p>
+
+      <div class="setting-row">
+        <label class="toggle-label">
+          <span>Enable price alerts</span>
+          <input type="checkbox" id="alertsEnabled" class="toggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-row">
+        <label class="toggle-label">
+          <span>Check prices automatically</span>
+          <input type="checkbox" id="autoCheck" class="toggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-row" id="checkIntervalRow">
+        <label>Check interval</label>
+        <select id="checkInterval">
+          <option value="60">Every hour</option>
+          <option value="360">Every 6 hours</option>
+          <option value="720">Every 12 hours</option>
+          <option value="1440">Once daily</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- Price History -->
+    <section class="setting-group">
+      <h2>Price History</h2>
+      <p class="description">Track price changes over time</p>
+
+      <div class="setting-row">
+        <label class="toggle-label">
+          <span>Save price history</span>
+          <input type="checkbox" id="historyEnabled" class="toggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-row">
+        <label>Keep history for</label>
+        <select id="historyDuration">
+          <option value="7">7 days</option>
+          <option value="30">30 days</option>
+          <option value="90">90 days</option>
+          <option value="365">1 year</option>
+        </select>
+      </div>
+
+      <button id="clearHistory" class="btn-secondary">Clear All History</button>
+    </section>
+
+    <!-- Detection Settings -->
+    <section class="setting-group">
+      <h2>Product Detection</h2>
+      <p class="description">Configure automatic product detection</p>
+
+      <div class="setting-row">
+        <label class="toggle-label">
+          <span>Auto-detect products on pages</span>
+          <input type="checkbox" id="autoDetect" class="toggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-row">
+        <label>Minimum detection confidence</label>
+        <select id="minConfidence">
+          <option value="0.3">Low (30%)</option>
+          <option value="0.5">Medium (50%)</option>
+          <option value="0.7">High (70%)</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- Saved Alerts List -->
+    <section class="setting-group">
+      <h2>Active Price Alerts</h2>
+      <p class="description">Products you're tracking for price drops</p>
+
+      <div id="alertsList" class="alerts-list">
+        <p class="empty-message">No price alerts set. Search for a product and click "Set Alert" to start tracking.</p>
+      </div>
+    </section>
+
+    <!-- Actions -->
+    <div class="actions">
+      <button id="saveBtn" class="btn-primary">Save Settings</button>
+      <span id="saveStatus" class="save-status"></span>
+    </div>
+
+    <footer>
+      <p>Amazon Price Finder v2.0.0</p>
+      <a href="https://github.com" target="_blank">View on GitHub</a>
+    </footer>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

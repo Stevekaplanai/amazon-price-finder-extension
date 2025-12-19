@@ -1,9 +1,10 @@
 # Amazon Price Finder Chrome Extension
 
-A Chrome extension that automatically detects products on any website and finds their prices on Amazon.
+A Chrome extension that automatically detects products on any website and finds their prices on Amazon. Now with price alerts, price history tracking, and multi-marketplace support!
 
 ## Features
 
+### Core Features
 - **Auto-detect products** - Automatically identifies products on e-commerce sites using:
   - Schema.org Product structured data
   - Open Graph meta tags
@@ -16,6 +17,32 @@ A Chrome extension that automatically detects products on any website and finds 
   - Detected products from current page
   - Amazon search results with prices, ratings, and Prime badges
   - Manual search functionality
+
+### New in v2.0
+
+- **Price Alerts** - Set target prices and get browser notifications when prices drop
+  - Automatic background price checking
+  - Customizable check intervals (hourly to daily)
+  - Notification with direct link to Amazon
+
+- **Price History** - Track price changes over time
+  - Visual price chart
+  - Statistics (lowest, average, highest)
+  - Configurable history duration
+
+- **Multi-Marketplace Support** - Search across 6 Amazon marketplaces:
+  - Amazon.com (US)
+  - Amazon.co.uk (UK)
+  - Amazon.de (Germany)
+  - Amazon.fr (France)
+  - Amazon.ca (Canada)
+  - Amazon.co.jp (Japan)
+
+- **Settings Page** - Customize your experience:
+  - Default marketplace selection
+  - Alert preferences
+  - Detection sensitivity
+  - History retention
 
 ## Installation
 
@@ -34,19 +61,28 @@ A Chrome extension that automatically detects products on any website and finds 
 3. The side panel will show:
    - Products detected on the current page
    - Click any detected product to search Amazon
-4. Or use the search box for manual searches
+4. Use the tabs to access:
+   - **Results** - Search results
+   - **Alerts** - Your price alerts
+   - **History** - Price tracking history
+5. Click the bell icon on any product to set a price alert
+6. Click the chart icon to view price history
 
 ## Project Structure
 
 ```
 amazon-price-finder/
 ├── manifest.json           # Chrome extension manifest (MV3)
-├── background.js           # Service worker - handles Amazon fetching
+├── background.js           # Service worker - handles Amazon fetching, alerts
 ├── content.js              # Content script - product detection
 ├── sidepanel/
-│   ├── sidepanel.html      # Side panel UI
+│   ├── sidepanel.html      # Side panel UI with tabs
 │   ├── sidepanel.css       # Styling
-│   └── sidepanel.js        # Panel logic
+│   └── sidepanel.js        # Panel logic, modals
+├── options/
+│   ├── options.html        # Settings page
+│   ├── options.css         # Settings styling
+│   └── options.js          # Settings logic
 ├── icons/
 │   ├── icon16.png
 │   ├── icon48.png
@@ -70,24 +106,35 @@ The content script runs on all web pages and detects products using multiple str
 
 The background service worker:
 - Receives product queries from content script/side panel
-- Fetches Amazon search results
-- Parses HTML to extract product data (title, price, rating, Prime status)
+- Fetches Amazon search results from selected marketplace
+- Parses HTML to extract product data
 - Caches results for 5 minutes
+- Saves price history for tracked products
+- Checks price alerts on schedule
 
-### Side Panel (sidepanel/)
+### Price Alerts
 
-Displays:
-- Detected products as clickable chips
-- Amazon search results as product cards
-- Loading, empty, and error states
+- Set target prices for any product
+- Background alarm checks prices periodically
+- Browser notification when price drops below target
+- Click notification to open Amazon product page
+
+### Price History
+
+- Automatically tracks prices when you search
+- Visual bar chart of recent prices
+- Statistics: lowest, average, highest
+- Configurable retention (7-365 days)
 
 ## Permissions
 
 - `activeTab` - Access current tab content
 - `sidePanel` - Display side panel
-- `storage` - Cache preferences
+- `storage` - Store settings, alerts, history
 - `scripting` - Inject content scripts
-- Host permission for `amazon.com`
+- `notifications` - Price drop alerts
+- `alarms` - Scheduled price checking
+- Host permissions for Amazon marketplaces
 
 ## Testing
 
@@ -97,18 +144,15 @@ Open `test/test-page.html` in Chrome with the extension loaded to verify product
 
 - Web scraping may be blocked by Amazon rate limiting
 - Product detection accuracy varies by website
-- US Amazon (amazon.com) only
+- Price history requires multiple searches over time
 
-## Learning Resources
+## Chrome Web Store
 
-This extension demonstrates:
-- Chrome Extension Manifest V3
-- Service Workers
-- Content Scripts
-- Side Panel API
-- Message Passing
-- DOM Parsing
-- Web Scraping
+To publish to Chrome Web Store:
+1. Create a ZIP file of the extension folder (excluding .git)
+2. Go to [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole)
+3. Pay one-time $5 developer fee
+4. Upload ZIP and complete listing
 
 ## License
 

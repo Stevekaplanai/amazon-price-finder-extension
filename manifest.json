@@ -1,16 +1,23 @@
 {
   "manifest_version": 3,
   "name": "Amazon Price Finder",
-  "version": "1.0.0",
-  "description": "Auto-detect products on any website and find their prices on Amazon",
+  "version": "2.0.0",
+  "description": "Auto-detect products, compare Amazon prices, track price history, and get alerts",
   "permissions": [
     "activeTab",
     "sidePanel",
     "storage",
-    "scripting"
+    "scripting",
+    "notifications",
+    "alarms"
   ],
   "host_permissions": [
-    "https://www.amazon.com/*"
+    "https://www.amazon.com/*",
+    "https://www.amazon.co.uk/*",
+    "https://www.amazon.de/*",
+    "https://www.amazon.fr/*",
+    "https://www.amazon.ca/*",
+    "https://www.amazon.co.jp/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -37,5 +44,6 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  "options_page": "options/options.html"
 }

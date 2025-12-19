@@ -1,37 +1,123 @@
-// Background Service Worker - Handles Amazon price lookups
+// Background Service Worker - Handles Amazon price lookups, alerts, and history
 
 // Cache for search results (session-based)
 const searchCache = new Map();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Marketplace configurations
+const MARKETPLACES = {
+  'com': { domain: 'www.amazon.com', currency: '$', name: 'US' },
+  'co.uk': { domain: 'www.amazon.co.uk', currency: '£', name: 'UK' },
+  'de': { domain: 'www.amazon.de', currency: '€', name: 'Germany' },
+  'fr': { domain: 'www.amazon.fr', currency: '€', name: 'France' },
+  'ca': { domain: 'www.amazon.ca', currency: 'C$', name: 'Canada' },
+  'co.jp': { domain: 'www.amazon.co.jp', currency: '¥', name: 'Japan' }
+};
+
+// Initialize on install
+chrome.runtime.onInstalled.addListener(async () => {
+  console.log('Amazon Price Finder installed');
+
+  // Set default settings
+  const result = await chrome.storage.sync.get('settings');
+  if (!result.settings) {
+    await chrome.storage.sync.set({
+      settings: {
+        marketplace: 'com',
+        alertsEnabled: true,
+        autoCheck: true,
+        checkInterval: 360,
+        historyEnabled: true,
+        historyDuration: 30,
+        autoDetect: true,
+        minConfidence: 0.5
+      }
+    });
+  }
+
+  // Set up price check alarm
+  chrome.alarms.create('priceCheck', { periodInMinutes: 360 });
+});
 
 // Open side panel when extension icon is clicked
 chrome.action.onClicked.addListener((tab) => {
   chrome.sidePanel.open({ tabId: tab.id });
 });
 
-// Listen for messages from content script and side panel
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'SEARCH_AMAZON') {
-    handleAmazonSearch(message.query)
-      .then(results => sendResponse({ success: true, results }))
-      .catch(error => sendResponse({ success: false, error: error.message }));
-    return true; // Keep channel open for async response
-  }
-
-  if (message.type === 'DETECTED_PRODUCTS') {
-    // Forward detected products to side panel
-    chrome.runtime.sendMessage({
-      type: 'PRODUCTS_FROM_PAGE',
-      products: message.products,
-      url: sender.tab?.url
-    });
+// Handle alarms for price checking
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === 'priceCheck') {
+    await checkPriceAlerts();
   }
 });
 
+// Listen for messages from content script and side panel
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  switch (message.type) {
+    case 'SEARCH_AMAZON':
+      handleAmazonSearch(message.query, message.marketplace)
+        .then(results => sendResponse({ success: true, results }))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+
+    case 'DETECTED_PRODUCTS':
+      chrome.runtime.sendMessage({
+        type: 'PRODUCTS_FROM_PAGE',
+        products: message.products,
+        url: sender.tab?.url
+      });
+      break;
+
+    case 'SET_PRICE_ALERT':
+      setPriceAlert(message.alert)
+        .then(() => sendResponse({ success: true }))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+
+    case 'REMOVE_PRICE_ALERT':
+      removePriceAlert(message.asin)
+        .then(() => sendResponse({ success: true }))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+
+    case 'GET_PRICE_HISTORY':
+      getPriceHistory(message.asin)
+        .then(history => sendResponse({ success: true, history }))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+
+    case 'GET_SETTINGS':
+      chrome.storage.sync.get('settings')
+        .then(result => sendResponse({ success: true, settings: result.settings }))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+
+    case 'SETTINGS_UPDATED':
+      // Update alarm based on new settings
+      if (message.settings.alertsEnabled && message.settings.autoCheck) {
+        chrome.alarms.create('priceCheck', {
+          periodInMinutes: message.settings.checkInterval
+        });
+      } else {
+        chrome.alarms.clear('priceCheck');
+      }
+      break;
+  }
+});
+
+// Get current marketplace from settings
+async function getCurrentMarketplace() {
+  const result = await chrome.storage.sync.get('settings');
+  return result.settings?.marketplace || 'com';
+}
+
 // Search Amazon and parse results
-async function handleAmazonSearch(query) {
+async function handleAmazonSearch(query, marketplace) {
+  const mp = marketplace || await getCurrentMarketplace();
+  const config = MARKETPLACES[mp] || MARKETPLACES['com'];
+
   // Check cache first
-  const cacheKey = query.toLowerCase().trim();
+  const cacheKey = `${mp}:${query.toLowerCase().trim()}`;
   const cached = searchCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
     console.log('Returning cached results for:', query);
@@ -39,7 +125,7 @@ async function handleAmazonSearch(query) {
   }
 
   // Build Amazon search URL
-  const searchUrl = `https://www.amazon.com/s?k=${encodeURIComponent(query)}`;
+  const searchUrl = `https://${config.domain}/s?k=${encodeURIComponent(query)}`;
 
   try {
     const response = await fetch(searchUrl, {
@@ -55,13 +141,19 @@ async function handleAmazonSearch(query) {
     }
 
     const html = await response.text();
-    const results = parseAmazonResults(html);
+    const results = parseAmazonResults(html, config);
 
     // Cache results
     searchCache.set(cacheKey, {
       results,
       timestamp: Date.now()
     });
+
+    // Save to price history if enabled
+    const settings = (await chrome.storage.sync.get('settings')).settings;
+    if (settings?.historyEnabled && results.length > 0) {
+      await savePriceHistory(results[0], mp);
+    }
 
     return results;
   } catch (error) {
@@ -71,21 +163,18 @@ async function handleAmazonSearch(query) {
 }
 
 // Parse Amazon search results HTML
-function parseAmazonResults(html) {
+function parseAmazonResults(html, config) {
   const results = [];
-
-  // Create a DOM parser
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
 
-  // Find product containers - Amazon uses data-component-type="s-search-result"
   const productCards = doc.querySelectorAll('[data-component-type="s-search-result"]');
 
   productCards.forEach((card, index) => {
-    if (index >= 10) return; // Limit to 10 results
+    if (index >= 10) return;
 
     try {
-      const product = extractProductData(card);
+      const product = extractProductData(card, config);
       if (product && product.title && product.price) {
         results.push(product);
       }
@@ -98,46 +187,42 @@ function parseAmazonResults(html) {
 }
 
 // Extract product data from a search result card
-function extractProductData(card) {
+function extractProductData(card, config) {
   const asin = card.getAttribute('data-asin');
   if (!asin) return null;
 
-  // Title - usually in h2 > a > span
   const titleElement = card.querySelector('h2 a span') ||
                        card.querySelector('[data-cy="title-recipe"] span') ||
                        card.querySelector('.a-text-normal');
   const title = titleElement?.textContent?.trim();
 
-  // Product URL
   const linkElement = card.querySelector('h2 a') || card.querySelector('a.a-link-normal');
-  const url = linkElement ? `https://www.amazon.com${linkElement.getAttribute('href')}` : null;
+  const url = linkElement ? `https://${config.domain}${linkElement.getAttribute('href')}` : null;
 
-  // Price - look for various price formats
   const priceWhole = card.querySelector('.a-price-whole');
   const priceFraction = card.querySelector('.a-price-fraction');
-  const priceSymbol = card.querySelector('.a-price-symbol');
 
   let price = null;
+  let priceValue = null;
   if (priceWhole) {
     const whole = priceWhole.textContent.replace(/[^\d]/g, '');
     const fraction = priceFraction?.textContent || '00';
-    const symbol = priceSymbol?.textContent || '$';
-    price = `${symbol}${whole}.${fraction}`;
+    price = `${config.currency}${whole}.${fraction}`;
+    priceValue = parseFloat(`${whole}.${fraction}`);
   }
 
-  // Alternative price format
   if (!price) {
     const offscreenPrice = card.querySelector('.a-offscreen');
     if (offscreenPrice) {
       price = offscreenPrice.textContent.trim();
+      const priceMatch = price.match(/[\d,.]+/);
+      priceValue = priceMatch ? parseFloat(priceMatch[0].replace(',', '')) : null;
     }
   }
 
-  // Image
   const imgElement = card.querySelector('img.s-image');
   const image = imgElement?.getAttribute('src');
 
-  // Rating
   const ratingElement = card.querySelector('.a-icon-star-small span') ||
                         card.querySelector('[aria-label*="out of 5 stars"]');
   let rating = null;
@@ -147,7 +232,6 @@ function extractProductData(card) {
     rating = ratingMatch ? parseFloat(ratingMatch[1]) : null;
   }
 
-  // Review count
   const reviewElement = card.querySelector('[aria-label*="ratings"]') ||
                         card.querySelector('span.a-size-base.s-underline-text');
   let reviews = null;
@@ -157,7 +241,6 @@ function extractProductData(card) {
     reviews = reviewMatch ? reviewMatch[0] : null;
   }
 
-  // Prime badge
   const isPrime = card.querySelector('[aria-label*="Prime"]') !== null ||
                   card.querySelector('.s-prime') !== null;
 
@@ -166,11 +249,143 @@ function extractProductData(card) {
     title,
     url,
     price,
+    priceValue,
     image,
     rating,
     reviews,
-    isPrime
+    isPrime,
+    marketplace: config.name
   };
 }
 
-console.log('Amazon Price Finder background service worker loaded');
+// Price Alerts Functions
+async function setPriceAlert(alert) {
+  const result = await chrome.storage.local.get('priceAlerts');
+  const alerts = result.priceAlerts || [];
+
+  // Check if alert already exists for this ASIN
+  const existingIndex = alerts.findIndex(a => a.asin === alert.asin);
+  if (existingIndex >= 0) {
+    alerts[existingIndex] = { ...alerts[existingIndex], ...alert, updatedAt: Date.now() };
+  } else {
+    alerts.push({ ...alert, createdAt: Date.now() });
+  }
+
+  await chrome.storage.local.set({ priceAlerts: alerts });
+  console.log('Price alert set:', alert);
+}
+
+async function removePriceAlert(asin) {
+  const result = await chrome.storage.local.get('priceAlerts');
+  const alerts = result.priceAlerts || [];
+  const filtered = alerts.filter(a => a.asin !== asin);
+  await chrome.storage.local.set({ priceAlerts: filtered });
+}
+
+async function checkPriceAlerts() {
+  console.log('Checking price alerts...');
+
+  const settings = (await chrome.storage.sync.get('settings')).settings;
+  if (!settings?.alertsEnabled) return;
+
+  const result = await chrome.storage.local.get('priceAlerts');
+  const alerts = result.priceAlerts || [];
+
+  for (const alert of alerts) {
+    try {
+      const results = await handleAmazonSearch(alert.productName, alert.marketplace);
+      const product = results.find(r => r.asin === alert.asin) || results[0];
+
+      if (product && product.priceValue) {
+        // Update current price
+        alert.currentPrice = product.price;
+        alert.currentPriceValue = product.priceValue;
+
+        // Check if price dropped below target
+        if (product.priceValue <= alert.targetPriceValue) {
+          await sendPriceDropNotification(alert, product);
+        }
+      }
+
+      // Add delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (error) {
+      console.error('Error checking alert for:', alert.productName, error);
+    }
+  }
+
+  // Save updated alerts with current prices
+  await chrome.storage.local.set({ priceAlerts: alerts });
+}
+
+async function sendPriceDropNotification(alert, product) {
+  chrome.notifications.create(`price-drop-${alert.asin}`, {
+    type: 'basic',
+    iconUrl: 'icons/icon128.png',
+    title: 'Price Drop Alert!',
+    message: `${alert.productName.slice(0, 50)}... is now ${product.price} (Target: ${alert.targetPrice})`,
+    buttons: [{ title: 'View on Amazon' }],
+    priority: 2
+  });
+}
+
+// Handle notification button clicks
+chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
+  if (notificationId.startsWith('price-drop-') && buttonIndex === 0) {
+    const asin = notificationId.replace('price-drop-', '');
+    chrome.storage.local.get('priceAlerts').then(result => {
+      const alert = (result.priceAlerts || []).find(a => a.asin === asin);
+      if (alert?.url) {
+        chrome.tabs.create({ url: alert.url });
+      }
+    });
+  }
+});
+
+// Price History Functions
+async function savePriceHistory(product, marketplace) {
+  const result = await chrome.storage.local.get('priceHistory');
+  const history = result.priceHistory || {};
+
+  const key = `${marketplace}:${product.asin}`;
+  if (!history[key]) {
+    history[key] = {
+      asin: product.asin,
+      title: product.title,
+      marketplace,
+      prices: []
+    };
+  }
+
+  // Add new price point
+  history[key].prices.push({
+    price: product.price,
+    priceValue: product.priceValue,
+    timestamp: Date.now()
+  });
+
+  // Clean old entries based on settings
+  const settings = (await chrome.storage.sync.get('settings')).settings;
+  const maxAge = (settings?.historyDuration || 30) * 24 * 60 * 60 * 1000;
+  const cutoff = Date.now() - maxAge;
+
+  history[key].prices = history[key].prices.filter(p => p.timestamp > cutoff);
+
+  // Limit to last 100 entries per product
+  if (history[key].prices.length > 100) {
+    history[key].prices = history[key].prices.slice(-100);
+  }
+
+  await chrome.storage.local.set({ priceHistory: history });
+}
+
+async function getPriceHistory(asin) {
+  const marketplace = await getCurrentMarketplace();
+  const result = await chrome.storage.local.get('priceHistory');
+  const history = result.priceHistory || {};
+  const key = `${marketplace}:${asin}`;
+
+  return history[key] || null;
+}
+
+console.log('Amazon Price Finder v2.0 background service worker loaded');
