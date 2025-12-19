@@ -1,0 +1,64 @@
+TITLE (45 chars max):
+Amazon Price Finder - Compare & Track Prices
+
+SHORT DESCRIPTION (132 chars max):
+Find better prices on Amazon! Auto-detects products, tracks price history, and alerts you when prices drop.
+
+DETAILED DESCRIPTION:
+
+Stop overpaying! Amazon Price Finder automatically detects products on any website and instantly shows you Amazon prices.
+
+KEY FEATURES:
+
+Auto-Detect Products
+Browse Walmart, Best Buy, Target, or any store - we'll automatically detect the product and find it on Amazon. No copying and pasting needed!
+
+Price Alerts
+Set your target price and get notified when it drops. Never miss a deal again! Alerts work in the background, even when Chrome is closed.
+
+Price History
+Track how prices change over time. See the lowest, average, and highest prices with a visual chart. Make informed buying decisions.
+
+Multi-Marketplace Support
+Search across 6 Amazon marketplaces:
+- Amazon.com (US)
+- Amazon.co.uk (UK)
+- Amazon.de (Germany)
+- Amazon.fr (France)
+- Amazon.ca (Canada)
+- Amazon.co.jp (Japan)
+
+Side Panel Interface
+Clean, modern side panel that doesn't interrupt your browsing. View results, manage alerts, and check history all in one place.
+
+HOW IT WORKS:
+1. Browse to any product page
+2. Click the extension icon
+3. See Amazon prices instantly
+4. Set alerts for price drops
+5. Save money!
+
+PRIVACY FOCUSED:
+- No account required
+- No personal data collected
+- All data stored locally on your device
+- Open source on GitHub
+
+Perfect for:
+- Bargain hunters
+- Online shoppers
+- Price comparison enthusiasts
+- Anyone who wants to save money!
+
+Download now and start saving on your next purchase!
+
+---
+
+CATEGORY: Shopping
+
+LANGUAGE: English
+
+---
+
+KEYWORDS/TAGS:
+amazon, price comparison, price tracker, shopping, deals, price alert, price history, save money, compare prices, bargain finder
