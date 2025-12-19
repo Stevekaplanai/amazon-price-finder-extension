@@ -1,4 +1,4 @@
-// Background Service Worker v3.0 - Handles Amazon price lookups, alerts, and history
+// Background Service Worker v4.0 - Handles Amazon price lookups, alerts, and history
 
 // Cache for search results (session-based)
 const searchCache = new Map();
@@ -434,4 +434,4 @@ async function getPriceHistory(asin) {
   return history[key] || null;
 }
 
-console.log('Amazon Price Finder v3.0 background service worker loaded');
+console.log('Amazon Price Finder v4.0 background service worker loaded');

@@ -942,16 +942,44 @@ header h1 {
   flex: 1;
 }
 
-/* Price Chart */
+/* Price Chart - SVG Line Chart */
 .price-chart {
-  height: 150px;
   margin: 16px 0;
-  position: relative;
   background: var(--bg-tertiary);
   border-radius: 8px;
   padding: 12px;
+  display: flex;
+  justify-content: center;
 }
 
+.price-line-chart {
+  max-width: 100%;
+  height: auto;
+}
+
+.price-line-chart .data-point {
+  opacity: 0;
+  transition: opacity 0.2s, r 0.2s;
+}
+
+.price-line-chart:hover .data-point {
+  opacity: 1;
+}
+
+.price-line-chart .data-point:hover {
+  r: 6;
+}
+
+.price-line-chart .current-price-dot {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Fallback bar chart styles */
 .chart-bars {
   display: flex;
   align-items: flex-end;

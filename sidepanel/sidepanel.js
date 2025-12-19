@@ -1,4 +1,4 @@
-// Side Panel JavaScript v3.0
+// Side Panel JavaScript v4.0
 
 document.addEventListener('DOMContentLoaded', async () => {
   // DOM Elements
@@ -743,17 +743,101 @@ document.addEventListener('DOMContentLoaded', async () => {
     const minPrice = Math.min(...prices.map(p => p.priceValue));
     const range = maxPrice - minPrice || 1;
 
-    // Take last 20 prices
-    const recentPrices = prices.slice(-20);
+    // Take last 30 prices for better visualization
+    const recentPrices = prices.slice(-30);
+
+    // Chart dimensions
+    const width = 340;
+    const height = 150;
+    const padding = { top: 20, right: 10, bottom: 30, left: 45 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    // Calculate points
+    const points = recentPrices.map((p, i) => {
+      const x = padding.left + (i / (recentPrices.length - 1 || 1)) * chartWidth;
+      const y = padding.top + chartHeight - ((p.priceValue - minPrice) / range) * chartHeight;
+      return { x, y, price: p.priceValue, date: new Date(p.timestamp) };
+    });
+
+    // Create SVG path for line
+    const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+
+    // Create area path (filled area under line)
+    const areaPath = `${linePath} L ${points[points.length - 1].x.toFixed(1)} ${height - padding.bottom} L ${padding.left} ${height - padding.bottom} Z`;
+
+    // Grid lines
+    const gridLines = [];
+    const numGridLines = 4;
+    for (let i = 0; i <= numGridLines; i++) {
+      const y = padding.top + (i / numGridLines) * chartHeight;
+      const value = maxPrice - (i / numGridLines) * range;
+      gridLines.push({ y, value });
+    }
+
+    // X-axis labels (first, middle, last dates)
+    const xLabels = [];
+    if (recentPrices.length > 0) {
+      const firstDate = new Date(recentPrices[0].timestamp);
+      const lastDate = new Date(recentPrices[recentPrices.length - 1].timestamp);
+      xLabels.push({ x: padding.left, label: formatShortDate(firstDate) });
+      if (recentPrices.length > 2) {
+        const midIndex = Math.floor(recentPrices.length / 2);
+        const midDate = new Date(recentPrices[midIndex].timestamp);
+        xLabels.push({ x: padding.left + chartWidth / 2, label: formatShortDate(midDate) });
+      }
+      xLabels.push({ x: padding.left + chartWidth, label: formatShortDate(lastDate) });
+    }
 
     priceChart.innerHTML = `
-      <div class="chart-bars">
-        ${recentPrices.map(p => {
-          const height = ((p.priceValue - minPrice) / range) * 80 + 20;
-          return `<div class="chart-bar" style="height: ${height}%" title="${p.price} - ${new Date(p.timestamp).toLocaleDateString()}"></div>`;
-        }).join('')}
-      </div>
+      <svg class="price-line-chart" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+        <defs>
+          <linearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style="stop-color:var(--accent-color);stop-opacity:0.3"/>
+            <stop offset="100%" style="stop-color:var(--accent-color);stop-opacity:0.05"/>
+          </linearGradient>
+        </defs>
+
+        <!-- Grid lines -->
+        ${gridLines.map(g => `
+          <line x1="${padding.left}" y1="${g.y.toFixed(1)}" x2="${width - padding.right}" y2="${g.y.toFixed(1)}"
+                stroke="var(--border-color)" stroke-width="1" stroke-dasharray="3,3"/>
+          <text x="${padding.left - 5}" y="${g.y.toFixed(1)}" fill="var(--text-muted)" font-size="10" text-anchor="end" dominant-baseline="middle">
+            $${g.value.toFixed(0)}
+          </text>
+        `).join('')}
+
+        <!-- X-axis labels -->
+        ${xLabels.map(l => `
+          <text x="${l.x.toFixed(1)}" y="${height - 8}" fill="var(--text-muted)" font-size="9" text-anchor="middle">
+            ${l.label}
+          </text>
+        `).join('')}
+
+        <!-- Area under line -->
+        <path d="${areaPath}" fill="url(#areaGradient)"/>
+
+        <!-- Line -->
+        <path d="${linePath}" fill="none" stroke="var(--accent-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+        <!-- Data points -->
+        ${points.map((p, i) => `
+          <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" fill="var(--bg-secondary)" stroke="var(--accent-color)" stroke-width="2" class="data-point" data-index="${i}">
+            <title>$${p.price.toFixed(2)} on ${p.date.toLocaleDateString()}</title>
+          </circle>
+        `).join('')}
+
+        <!-- Current price indicator -->
+        <circle cx="${points[points.length - 1].x.toFixed(1)}" cy="${points[points.length - 1].y.toFixed(1)}" r="6" fill="var(--accent-color)" class="current-price-dot">
+          <title>Current: $${points[points.length - 1].price.toFixed(2)}</title>
+        </circle>
+      </svg>
     `;
+  }
+
+  function formatShortDate(date) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${months[date.getMonth()]} ${date.getDate()}`;
   }
 
   function renderHistoryStats(prices) {

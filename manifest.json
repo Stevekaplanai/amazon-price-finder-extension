@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Amazon Price Finder",
-  "version": "3.0.0",
-  "description": "Auto-detect products, compare Amazon prices, track price history, wishlists, and get price drop alerts - with dark mode!",
+  "version": "4.0.0",
+  "description": "Auto-detect products, compare Amazon prices, track price history, wishlists, currency converter, and get price drop alerts!",
   "permissions": [
     "activeTab",
     "sidePanel",
@@ -33,6 +33,7 @@
     "default_path": "sidepanel/sidepanel.html"
   },
   "action": {
+    "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
