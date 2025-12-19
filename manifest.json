@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Amazon Price Finder",
-  "version": "2.0.0",
-  "description": "Auto-detect products, compare Amazon prices, track price history, and get alerts",
+  "version": "3.0.0",
+  "description": "Auto-detect products, compare Amazon prices, track price history, wishlists, and get price drop alerts - with dark mode!",
   "permissions": [
     "activeTab",
     "sidePanel",
@@ -45,5 +45,21 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "options_page": "options/options.html"
+  "options_page": "options/options.html",
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+A",
+        "mac": "Command+Shift+A"
+      },
+      "description": "Open Amazon Price Finder"
+    },
+    "focus_search": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+F",
+        "mac": "Command+Shift+F"
+      },
+      "description": "Focus search input"
+    }
+  }
 }

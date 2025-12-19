@@ -1,4 +1,4 @@
-// Side Panel JavaScript v2.0
+// Side Panel JavaScript v3.0
 
 document.addEventListener('DOMContentLoaded', async () => {
   // DOM Elements
@@ -7,7 +7,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const refreshBtn = document.getElementById('refreshBtn');
   const retryBtn = document.getElementById('retryBtn');
   const settingsBtn = document.getElementById('settingsBtn');
+  const themeToggle = document.getElementById('themeToggle');
   const marketplaceSelect = document.getElementById('marketplaceSelect');
+  const exportBtn = document.getElementById('exportBtn');
 
   const detectedSection = document.getElementById('detectedSection');
   const detectedProducts = document.getElementById('detectedProducts');
@@ -24,7 +26,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const tabs = document.querySelectorAll('.tab');
   const tabContents = document.querySelectorAll('.tab-content');
   const alertCount = document.getElementById('alertCount');
+  const wishlistCount = document.getElementById('wishlistCount');
   const alertsList = document.getElementById('alertsList');
+  const wishlistList = document.getElementById('wishlistList');
   const historyList = document.getElementById('historyList');
 
   // Modals
@@ -41,15 +45,34 @@ document.addEventListener('DOMContentLoaded', async () => {
   const historyStats = document.getElementById('historyStats');
   const closeHistoryBtn = document.getElementById('closeHistoryBtn');
 
+  const shareModal = document.getElementById('shareModal');
+  const shareProductName = document.getElementById('shareProductName');
+  const shareText = document.getElementById('shareText');
+  const closeShareBtn = document.getElementById('closeShareBtn');
+  const copyShareBtn = document.getElementById('copyShareBtn');
+
   // State
   let currentQuery = '';
   let lastDetectedProducts = [];
   let currentAlertProduct = null;
   let currentResults = [];
+  let retryCount = 0;
+  const MAX_RETRIES = 3;
+
+  // Currency conversion rates (approximate)
+  const CURRENCY_RATES = {
+    'USD': 1,
+    'GBP': 1.27,
+    'EUR': 1.09,
+    'CAD': 0.74,
+    'JPY': 0.0067
+  };
 
   // Initialize
+  await initTheme();
   await loadSettings();
   await loadAlerts();
+  await loadWishlist();
   await loadHistory();
   requestPageRescan();
 
@@ -59,13 +82,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.key === 'Enter') handleSearch();
   });
   refreshBtn.addEventListener('click', requestPageRescan);
-  retryBtn.addEventListener('click', () => {
-    if (currentQuery) searchAmazon(currentQuery);
-  });
+  retryBtn.addEventListener('click', handleRetry);
   settingsBtn.addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
   });
+  themeToggle.addEventListener('click', toggleTheme);
   marketplaceSelect.addEventListener('change', saveMarketplace);
+  exportBtn.addEventListener('click', exportHistoryToCSV);
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', handleKeyboardShortcuts);
 
   // Tab switching
   tabs.forEach(tab => {
@@ -77,6 +103,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById(`${tabName}Tab`).classList.add('active');
 
       if (tabName === 'alerts') loadAlerts();
+      if (tabName === 'wishlist') loadWishlist();
       if (tabName === 'history') loadHistory();
     });
   });
@@ -94,6 +121,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.target === historyModal) closeHistoryModal();
   });
 
+  // Share modal
+  closeShareBtn.addEventListener('click', closeShareModal);
+  copyShareBtn.addEventListener('click', copyShareText);
+  shareModal.addEventListener('click', (e) => {
+    if (e.target === shareModal) closeShareModal();
+  });
+
   // Listen for messages from background/content scripts
   chrome.runtime.onMessage.addListener((message) => {
     if (message.type === 'PRODUCTS_FROM_PAGE') {
@@ -101,7 +135,49 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Functions
+  // Theme Functions
+  async function initTheme() {
+    const result = await chrome.storage.sync.get('theme');
+    let theme = result.theme;
+
+    if (!theme) {
+      // Use system preference
+      theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+
+  function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', newTheme);
+    chrome.storage.sync.set({ theme: newTheme });
+    showToast(`Switched to ${newTheme} mode`);
+  }
+
+  // Keyboard Shortcuts
+  function handleKeyboardShortcuts(e) {
+    // Ctrl+Shift+F - Focus search
+    if (e.ctrlKey && e.shiftKey && e.key === 'F') {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+    }
+    // Escape - Close modals
+    if (e.key === 'Escape') {
+      closeAlertModal();
+      closeHistoryModal();
+      closeShareModal();
+    }
+    // Ctrl+E - Export history
+    if (e.ctrlKey && e.key === 'e') {
+      e.preventDefault();
+      exportHistoryToCSV();
+    }
+  }
+
+  // Settings Functions
   async function loadSettings() {
     try {
       const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
@@ -124,10 +200,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // Search Functions
   function handleSearch() {
     const query = searchInput.value.trim();
     if (query) {
+      retryCount = 0;
       searchAmazon(query);
+    }
+  }
+
+  function handleRetry() {
+    if (currentQuery) {
+      retryCount++;
+      if (retryCount <= MAX_RETRIES) {
+        showToast(`Retrying... (${retryCount}/${MAX_RETRIES})`);
+        setTimeout(() => searchAmazon(currentQuery), retryCount * 1000);
+      } else {
+        showToast('Max retries reached. Please try again later.', 'error');
+      }
     }
   }
 
@@ -144,13 +234,84 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (response.success) {
         currentResults = response.results;
-        showResults(response.results, query);
+        retryCount = 0;
+
+        // Enrich results with price trends and deal badges
+        const enrichedResults = await enrichResults(response.results);
+        showResults(enrichedResults, query);
       } else {
-        showError(response.error || 'Failed to search Amazon');
+        if (response.error?.includes('rate limit') && retryCount < MAX_RETRIES) {
+          handleRetry();
+        } else {
+          showError(response.error || 'Failed to search Amazon');
+        }
       }
     } catch (error) {
       showError(error.message);
     }
+  }
+
+  // Enrich results with price trends and deal detection
+  async function enrichResults(results) {
+    const enriched = [];
+
+    for (const product of results) {
+      const enrichedProduct = { ...product };
+
+      // Get price history for trend
+      try {
+        const historyResponse = await chrome.runtime.sendMessage({
+          type: 'GET_PRICE_HISTORY',
+          asin: product.asin
+        });
+
+        if (historyResponse.success && historyResponse.history?.prices?.length > 1) {
+          const prices = historyResponse.history.prices;
+          const currentPrice = product.priceValue;
+          const previousPrice = prices[prices.length - 2]?.priceValue;
+          const lowestPrice = Math.min(...prices.map(p => p.priceValue));
+          const avgPrice = prices.reduce((a, b) => a + b.priceValue, 0) / prices.length;
+
+          // Calculate trend
+          if (previousPrice) {
+            const change = ((currentPrice - previousPrice) / previousPrice) * 100;
+            if (change < -2) {
+              enrichedProduct.trend = { direction: 'down', change: Math.abs(change).toFixed(1) };
+            } else if (change > 2) {
+              enrichedProduct.trend = { direction: 'up', change: Math.abs(change).toFixed(1) };
+            } else {
+              enrichedProduct.trend = { direction: 'stable', change: 0 };
+            }
+          }
+
+          // Check for deal (within 5% of lowest price)
+          if (currentPrice <= lowestPrice * 1.05) {
+            enrichedProduct.isDeal = true;
+            if (currentPrice === lowestPrice) {
+              enrichedProduct.dealType = 'All-Time Low!';
+            } else {
+              enrichedProduct.dealType = 'Near Lowest';
+            }
+          }
+
+          // Check for good deal (below average)
+          if (currentPrice < avgPrice * 0.9) {
+            enrichedProduct.savings = Math.round(((avgPrice - currentPrice) / avgPrice) * 100);
+          }
+        }
+      } catch (e) {
+        // Ignore history errors
+      }
+
+      // Check if in wishlist
+      const wishlistResult = await chrome.storage.local.get('wishlist');
+      const wishlist = wishlistResult.wishlist || [];
+      enrichedProduct.inWishlist = wishlist.some(w => w.asin === product.asin);
+
+      enriched.push(enrichedProduct);
+    }
+
+    return enriched;
   }
 
   function handleDetectedProducts(products) {
@@ -198,16 +359,26 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     searchResults.innerHTML = results.map((product, index) => `
       <div class="product-card" data-index="${index}">
+        ${product.isDeal ? `<div class="deal-badge">🔥 ${product.dealType}</div>` : ''}
         <div class="product-header">
           ${product.image
             ? `<img src="${escapeHtml(product.image)}" alt="" class="product-image">`
-            : `<div class="product-image placeholder">?</div>`
+            : `<div class="product-image placeholder">📦</div>`
           }
           <div class="product-info">
             <div class="product-title">
               <a href="${escapeHtml(product.url)}" target="_blank">${escapeHtml(product.title)}</a>
             </div>
-            <div class="product-price">${escapeHtml(product.price || 'Price unavailable')}</div>
+            <div class="product-price">
+              ${escapeHtml(product.price || 'Price unavailable')}
+              ${product.trend ? `
+                <span class="price-trend ${product.trend.direction}">
+                  ${product.trend.direction === 'down' ? '↓' : product.trend.direction === 'up' ? '↑' : '→'}
+                  ${product.trend.change}%
+                </span>
+              ` : ''}
+              ${product.savings ? `<span class="savings-badge">${product.savings}% below avg</span>` : ''}
+            </div>
           </div>
         </div>
         <div class="product-meta">
@@ -224,6 +395,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         </div>
         <div class="product-actions">
           <a href="${escapeHtml(product.url)}" target="_blank" class="view-btn">View on Amazon</a>
+          <button class="action-btn wishlist-btn ${product.inWishlist ? 'wishlisted' : ''}" data-index="${index}" title="${product.inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="${product.inWishlist ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+            </svg>
+          </button>
           <button class="action-btn alert-btn" data-index="${index}" title="Set price alert">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
@@ -236,11 +412,28 @@ document.addEventListener('DOMContentLoaded', async () => {
               <path d="m19 9-5 5-4-4-3 3"/>
             </svg>
           </button>
+          <button class="action-btn share-btn" data-index="${index}" title="Share deal">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="18" cy="5" r="3"/>
+              <circle cx="6" cy="12" r="3"/>
+              <circle cx="18" cy="19" r="3"/>
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+            </svg>
+          </button>
         </div>
       </div>
     `).join('');
 
     // Add event listeners
+    searchResults.querySelectorAll('.wishlist-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const index = parseInt(btn.dataset.index);
+        toggleWishlist(currentResults[index]);
+      });
+    });
+
     searchResults.querySelectorAll('.alert-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.preventDefault();
@@ -254,6 +447,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         e.preventDefault();
         const index = parseInt(btn.dataset.index);
         openHistoryModal(currentResults[index]);
+      });
+    });
+
+    searchResults.querySelectorAll('.share-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const index = parseInt(btn.dataset.index);
+        openShareModal(currentResults[index]);
       });
     });
   }
@@ -287,6 +488,112 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // Wishlist Functions
+  async function toggleWishlist(product) {
+    const result = await chrome.storage.local.get('wishlist');
+    let wishlist = result.wishlist || [];
+
+    const existingIndex = wishlist.findIndex(w => w.asin === product.asin);
+
+    if (existingIndex >= 0) {
+      wishlist.splice(existingIndex, 1);
+      showToast('Removed from wishlist');
+    } else {
+      wishlist.push({
+        asin: product.asin,
+        title: product.title,
+        price: product.price,
+        priceValue: product.priceValue,
+        url: product.url,
+        image: product.image,
+        addedAt: Date.now()
+      });
+      showToast('Added to wishlist');
+    }
+
+    await chrome.storage.local.set({ wishlist });
+    await loadWishlist();
+
+    // Re-render results to update heart icon
+    if (currentResults.length > 0) {
+      const enrichedResults = await enrichResults(currentResults);
+      showResults(enrichedResults, currentQuery);
+    }
+  }
+
+  async function loadWishlist() {
+    try {
+      const result = await chrome.storage.local.get('wishlist');
+      const wishlist = result.wishlist || [];
+
+      updateWishlistBadge(wishlist.length);
+
+      if (wishlist.length === 0) {
+        wishlistList.innerHTML = `
+          <div class="empty-wishlist">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+            </svg>
+            <p>Your wishlist is empty</p>
+            <p class="hint">Click the heart icon on products to add them here</p>
+          </div>
+        `;
+        return;
+      }
+
+      wishlistList.innerHTML = wishlist.map((item, index) => `
+        <div class="wishlist-card" data-asin="${item.asin}">
+          ${item.image
+            ? `<img src="${escapeHtml(item.image)}" class="product-image" alt="">`
+            : `<div class="product-image placeholder">📦</div>`
+          }
+          <div class="product-info">
+            <div class="product-name">${escapeHtml(item.title)}</div>
+            <div class="product-price">${item.price || 'Price unavailable'}</div>
+          </div>
+          <button class="remove-btn" data-asin="${item.asin}" title="Remove from wishlist">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+      `).join('');
+
+      wishlistList.querySelectorAll('.remove-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const asin = btn.dataset.asin;
+          const result = await chrome.storage.local.get('wishlist');
+          const wishlist = (result.wishlist || []).filter(w => w.asin !== asin);
+          await chrome.storage.local.set({ wishlist });
+          await loadWishlist();
+          showToast('Removed from wishlist');
+        });
+      });
+
+      wishlistList.querySelectorAll('.wishlist-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const asin = card.dataset.asin;
+          const item = wishlist.find(w => w.asin === asin);
+          if (item?.url) {
+            window.open(item.url, '_blank');
+          }
+        });
+      });
+    } catch (e) {
+      console.error('Failed to load wishlist:', e);
+    }
+  }
+
+  function updateWishlistBadge(count) {
+    if (count > 0) {
+      wishlistCount.textContent = count;
+      wishlistCount.classList.remove('hidden');
+    } else {
+      wishlistCount.classList.add('hidden');
+    }
+  }
+
   // Alert Modal Functions
   function openAlertModal(product) {
     currentAlertProduct = product;
@@ -307,7 +614,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const target = parseFloat(targetPrice.value);
     if (isNaN(target) || target <= 0) {
-      alert('Please enter a valid target price');
+      showToast('Please enter a valid target price', 'error');
       return;
     }
 
@@ -326,13 +633,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       await chrome.runtime.sendMessage({ type: 'SET_PRICE_ALERT', alert });
       closeAlertModal();
       await loadAlerts();
-
-      // Update alert count badge
-      const result = await chrome.storage.local.get('priceAlerts');
-      const alerts = result.priceAlerts || [];
-      updateAlertBadge(alerts.length);
+      showToast('Price alert set!', 'success');
     } catch (e) {
       console.error('Failed to save alert:', e);
+      showToast('Failed to save alert', 'error');
     }
   }
 
@@ -357,28 +661,34 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
 
-      alertsList.innerHTML = alerts.map((alert, index) => `
-        <div class="alert-card" data-index="${index}">
-          <div class="product-name">${escapeHtml(alert.productName)}</div>
-          <div class="alert-prices">
-            <div class="price-item">
-              <span class="label">Current:</span>
-              <span class="current">${alert.currentPrice || 'Unknown'}</span>
+      alertsList.innerHTML = alerts.map((alert, index) => {
+        const priceDropped = alert.currentPriceValue && alert.currentPriceValue <= alert.targetPriceValue;
+        return `
+          <div class="alert-card ${priceDropped ? 'price-dropped' : ''}" data-index="${index}">
+            ${priceDropped ? `<div class="alert-status">🎉 Price dropped! Now below target!</div>` : ''}
+            <div class="product-name">${escapeHtml(alert.productName)}</div>
+            <div class="alert-prices">
+              <div class="price-item">
+                <span class="label">Current:</span>
+                <span class="current">${alert.currentPrice || 'Unknown'}</span>
+              </div>
+              <div class="price-item">
+                <span class="label">Target:</span>
+                <span class="target">${alert.targetPrice}</span>
+              </div>
             </div>
-            <div class="price-item">
-              <span class="label">Target:</span>
-              <span class="target">${alert.targetPrice}</span>
-            </div>
+            ${priceDropped ? `<a href="${escapeHtml(alert.url)}" target="_blank" class="view-btn" style="margin-bottom:8px;display:block;">View on Amazon</a>` : ''}
+            <button class="delete-btn" data-asin="${alert.asin}">Remove Alert</button>
           </div>
-          <button class="delete-btn" data-asin="${alert.asin}">Remove Alert</button>
-        </div>
-      `).join('');
+        `;
+      }).join('');
 
       alertsList.querySelectorAll('.delete-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
           const asin = btn.dataset.asin;
           await chrome.runtime.sendMessage({ type: 'REMOVE_PRICE_ALERT', asin });
           await loadAlerts();
+          showToast('Alert removed');
         });
       });
     } catch (e) {
@@ -409,7 +719,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderPriceChart(response.history.prices);
         renderHistoryStats(response.history.prices);
       } else {
-        priceChart.innerHTML = '<p style="text-align:center;color:#9ca3af;padding:40px;">No price history available</p>';
+        priceChart.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:40px;">No price history available</p>';
         historyStats.innerHTML = '';
       }
 
@@ -440,7 +750,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       <div class="chart-bars">
         ${recentPrices.map(p => {
           const height = ((p.priceValue - minPrice) / range) * 80 + 20;
-          return `<div class="chart-bar" style="height: ${height}%" title="${p.price}"></div>`;
+          return `<div class="chart-bar" style="height: ${height}%" title="${p.price} - ${new Date(p.timestamp).toLocaleDateString()}"></div>`;
         }).join('')}
       </div>
     `;
@@ -492,13 +802,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         const prices = item.prices.map(p => p.priceValue);
         const min = Math.min(...prices);
         const max = Math.max(...prices);
+        const current = prices[prices.length - 1];
+        const previous = prices.length > 1 ? prices[prices.length - 2] : current;
+
+        let trendIcon = '→';
+        let trendClass = 'stable';
+        if (current < previous * 0.98) {
+          trendIcon = '↓';
+          trendClass = 'down';
+        } else if (current > previous * 1.02) {
+          trendIcon = '↑';
+          trendClass = 'up';
+        }
 
         return `
           <div class="history-card" data-asin="${item.asin}">
             <div class="product-name">${escapeHtml(item.title)}</div>
             <div class="price-range">
               <span class="low">$${min.toFixed(2)}</span> - <span class="high">$${max.toFixed(2)}</span>
-              <span style="color:#9ca3af;margin-left:8px;">(${item.prices.length} records)</span>
+              <span class="price-trend ${trendClass}" style="margin-left:8px;">${trendIcon}</span>
+              <span style="color:var(--text-muted);margin-left:8px;">(${item.prices.length} records)</span>
             </div>
           </div>
         `;
@@ -525,6 +848,91 @@ document.addEventListener('DOMContentLoaded', async () => {
     historyModal.classList.remove('hidden');
   }
 
+  // Export to CSV
+  async function exportHistoryToCSV() {
+    try {
+      const result = await chrome.storage.local.get('priceHistory');
+      const history = result.priceHistory || {};
+      const items = Object.values(history);
+
+      if (items.length === 0) {
+        showToast('No history to export', 'error');
+        return;
+      }
+
+      // Build CSV content
+      const rows = [['Product', 'ASIN', 'Date', 'Price', 'Price Value']];
+
+      items.forEach(item => {
+        item.prices.forEach(p => {
+          rows.push([
+            `"${item.title.replace(/"/g, '""')}"`,
+            item.asin,
+            new Date(p.timestamp).toISOString(),
+            p.price,
+            p.priceValue
+          ]);
+        });
+      });
+
+      const csvContent = rows.map(r => r.join(',')).join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `price-history-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showToast('History exported!', 'success');
+    } catch (e) {
+      console.error('Failed to export history:', e);
+      showToast('Failed to export', 'error');
+    }
+  }
+
+  // Share Functions
+  function openShareModal(product) {
+    shareProductName.textContent = product.title;
+    shareText.value = `Check out this deal on Amazon!\n\n${product.title}\n💰 ${product.price}${product.savings ? ` (${product.savings}% below average!)` : ''}\n${product.isPrime ? '✓ Prime eligible\n' : ''}🔗 ${product.url}`;
+    shareModal.classList.remove('hidden');
+  }
+
+  function closeShareModal() {
+    shareModal.classList.add('hidden');
+  }
+
+  async function copyShareText() {
+    try {
+      await navigator.clipboard.writeText(shareText.value);
+      showToast('Copied to clipboard!', 'success');
+      closeShareModal();
+    } catch (e) {
+      showToast('Failed to copy', 'error');
+    }
+  }
+
+  // Toast Notification
+  function showToast(message, type = '') {
+    const existingToast = document.querySelector('.toast');
+    if (existingToast) {
+      existingToast.remove();
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+      toast.remove();
+    }, 3000);
+  }
+
+  // Utility
   function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');

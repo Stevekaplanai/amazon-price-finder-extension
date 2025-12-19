@@ -11,12 +11,23 @@
     <header>
       <div class="header-top">
         <h1>Amazon Price Finder</h1>
-        <button id="settingsBtn" class="icon-btn" title="Settings">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="3"/>
-            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
-          </svg>
-        </button>
+        <div class="header-actions">
+          <button id="themeToggle" class="theme-toggle" title="Toggle dark mode">
+            <svg class="moon-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+            <svg class="sun-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="5"/>
+              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+            </svg>
+          </button>
+          <button id="settingsBtn" class="icon-btn" title="Settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+            </svg>
+          </button>
+        </div>
       </div>
       <div class="marketplace-selector">
         <select id="marketplaceSelect">
@@ -33,7 +44,7 @@
     <!-- Search Section -->
     <div class="search-section">
       <div class="search-box">
-        <input type="text" id="searchInput" placeholder="Search Amazon...">
+        <input type="text" id="searchInput" placeholder="Search Amazon... (Ctrl+Shift+F)">
         <button id="searchBtn" title="Search">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="11" cy="11" r="8"/>
@@ -47,6 +58,7 @@
     <div class="tabs">
       <button class="tab active" data-tab="results">Results</button>
       <button class="tab" data-tab="alerts">Alerts <span id="alertCount" class="badge hidden">0</span></button>
+      <button class="tab" data-tab="wishlist">Wishlist <span id="wishlistCount" class="badge hidden">0</span></button>
       <button class="tab" data-tab="history">History</button>
     </div>
 
@@ -77,10 +89,35 @@
         <div id="searchResults" class="product-list"></div>
       </div>
 
-      <!-- Loading State -->
+      <!-- Loading State with Skeleton -->
       <div id="loadingState" class="state-message hidden">
-        <div class="spinner"></div>
-        <p>Searching Amazon...</p>
+        <div class="skeleton-card">
+          <div style="display:flex;gap:12px;">
+            <div class="skeleton skeleton-image"></div>
+            <div style="flex:1;">
+              <div class="skeleton skeleton-title"></div>
+              <div class="skeleton skeleton-price"></div>
+            </div>
+          </div>
+        </div>
+        <div class="skeleton-card">
+          <div style="display:flex;gap:12px;">
+            <div class="skeleton skeleton-image"></div>
+            <div style="flex:1;">
+              <div class="skeleton skeleton-title"></div>
+              <div class="skeleton skeleton-price"></div>
+            </div>
+          </div>
+        </div>
+        <div class="skeleton-card">
+          <div style="display:flex;gap:12px;">
+            <div class="skeleton skeleton-image"></div>
+            <div style="flex:1;">
+              <div class="skeleton skeleton-title"></div>
+              <div class="skeleton skeleton-price"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Empty State -->
@@ -92,6 +129,7 @@
           </svg>
         </div>
         <p>Browse to a product page or search manually</p>
+        <p class="hint">Press Ctrl+Shift+F to quickly search</p>
       </div>
 
       <!-- Error State -->
@@ -116,8 +154,32 @@
       </div>
     </div>
 
+    <!-- Wishlist Tab -->
+    <div id="wishlistTab" class="tab-content">
+      <div id="wishlistList" class="wishlist-container">
+        <div class="empty-wishlist">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+          </svg>
+          <p>Your wishlist is empty</p>
+          <p class="hint">Click the heart icon on products to add them here</p>
+        </div>
+      </div>
+    </div>
+
     <!-- History Tab -->
     <div id="historyTab" class="tab-content">
+      <div class="history-header">
+        <h2 style="font-size:14px;font-weight:600;">Price History</h2>
+        <button id="exportBtn" class="export-btn" title="Export to CSV">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Export CSV
+        </button>
+      </div>
       <div id="historyList" class="history-container">
         <div class="empty-history">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -164,6 +226,34 @@
         <p id="historyProductName" class="modal-product-name"></p>
         <div id="priceChart" class="price-chart"></div>
         <div id="historyStats" class="history-stats"></div>
+      </div>
+    </div>
+
+    <!-- Share Modal -->
+    <div id="shareModal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Share Deal</h3>
+          <button id="closeShareBtn" class="icon-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <p id="shareProductName" class="modal-product-name"></p>
+        <div class="modal-field">
+          <label>Share Text</label>
+          <textarea id="shareText" rows="3" style="width:100%;padding:10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-primary);color:var(--text-primary);resize:none;"></textarea>
+        </div>
+        <div class="modal-actions">
+          <button id="copyShareBtn" class="btn-primary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            Copy to Clipboard
+          </button>
+        </div>
       </div>
     </div>
   </div>

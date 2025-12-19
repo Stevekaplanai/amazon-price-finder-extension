@@ -1,8 +1,10 @@
-// Background Service Worker - Handles Amazon price lookups, alerts, and history
+// Background Service Worker v3.0 - Handles Amazon price lookups, alerts, and history
 
 // Cache for search results (session-based)
 const searchCache = new Map();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const MAX_RETRIES = 3;
+const RETRY_DELAYS = [1000, 2000, 4000]; // Exponential backoff
 
 // Marketplace configurations
 const MARKETPLACES = {
@@ -111,8 +113,8 @@ async function getCurrentMarketplace() {
   return result.settings?.marketplace || 'com';
 }
 
-// Search Amazon and parse results
-async function handleAmazonSearch(query, marketplace) {
+// Search Amazon and parse results with retry logic
+async function handleAmazonSearch(query, marketplace, retryAttempt = 0) {
   const mp = marketplace || await getCurrentMarketplace();
   const config = MARKETPLACES[mp] || MARKETPLACES['com'];
 
@@ -127,20 +129,52 @@ async function handleAmazonSearch(query, marketplace) {
   // Build Amazon search URL
   const searchUrl = `https://${config.domain}/s?k=${encodeURIComponent(query)}`;
 
+  // Rotate user agents to avoid detection
+  const userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15'
+  ];
+
   try {
     const response = await fetch(searchUrl, {
       headers: {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': userAgents[Math.floor(Math.random() * userAgents.length)],
+        'Cache-Control': 'no-cache'
       }
     });
+
+    // Handle rate limiting
+    if (response.status === 429 || response.status === 503) {
+      if (retryAttempt < MAX_RETRIES) {
+        const delay = RETRY_DELAYS[retryAttempt] || RETRY_DELAYS[RETRY_DELAYS.length - 1];
+        console.log(`Rate limited. Retrying in ${delay}ms (attempt ${retryAttempt + 1}/${MAX_RETRIES})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return handleAmazonSearch(query, marketplace, retryAttempt + 1);
+      }
+      throw new Error('Rate limited by Amazon. Please try again later.');
+    }
 
     if (!response.ok) {
       throw new Error(`Amazon returned status ${response.status}`);
     }
 
     const html = await response.text();
+
+    // Check for CAPTCHA or blocking page
+    if (html.includes('Enter the characters you see below') || html.includes('Robot Check')) {
+      if (retryAttempt < MAX_RETRIES) {
+        const delay = RETRY_DELAYS[retryAttempt] * 2;
+        console.log(`CAPTCHA detected. Retrying in ${delay}ms (attempt ${retryAttempt + 1}/${MAX_RETRIES})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return handleAmazonSearch(query, marketplace, retryAttempt + 1);
+      }
+      throw new Error('Amazon is blocking requests. Please try again later.');
+    }
+
     const results = parseAmazonResults(html, config);
 
     // Cache results
@@ -151,13 +185,25 @@ async function handleAmazonSearch(query, marketplace) {
 
     // Save to price history if enabled
     const settings = (await chrome.storage.sync.get('settings')).settings;
-    if (settings?.historyEnabled && results.length > 0) {
-      await savePriceHistory(results[0], mp);
+    if (settings?.historyEnabled !== false && results.length > 0) {
+      // Save all results to history, not just the first one
+      for (const result of results.slice(0, 3)) {
+        await savePriceHistory(result, mp);
+      }
     }
 
     return results;
   } catch (error) {
     console.error('Amazon search error:', error);
+
+    // Retry on network errors
+    if (retryAttempt < MAX_RETRIES && (error.name === 'TypeError' || error.message.includes('network'))) {
+      const delay = RETRY_DELAYS[retryAttempt];
+      console.log(`Network error. Retrying in ${delay}ms (attempt ${retryAttempt + 1}/${MAX_RETRIES})`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return handleAmazonSearch(query, marketplace, retryAttempt + 1);
+    }
+
     throw error;
   }
 }
@@ -388,4 +434,4 @@ async function getPriceHistory(asin) {
   return history[key] || null;
 }
 
-console.log('Amazon Price Finder v2.0 background service worker loaded');
+console.log('Amazon Price Finder v3.0 background service worker loaded');
