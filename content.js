@@ -4,18 +4,50 @@
   'use strict';
 
   // Avoid running on Amazon itself
-  if (window.location.hostname.includes('amazon.com')) {
+  if (window.location.hostname.includes('amazon.')) {
     return;
   }
 
-  // Delay detection to ensure page is fully loaded
-  setTimeout(detectProducts, 1500);
+  // AI Detection State
+  let aiDetectionEnabled = false;
+  let imageQueue = new Map(); // url -> { element, queued }
+  let processedUrls = new Set();
+  let aiDebounceTimer = null;
+  let intersectionObserver = null;
+
+  // Load settings and initialize
+  initializeDetection();
+
+  async function initializeDetection() {
+    // Load AI detection settings
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
+      if (response?.success && response.settings) {
+        aiDetectionEnabled = response.settings.aiDetectionEnabled && response.settings.geminiApiKey;
+      }
+    } catch (e) {
+      console.log('Could not load AI settings:', e);
+    }
+
+    // Delay traditional detection to ensure page is fully loaded
+    setTimeout(detectProducts, 1500);
+
+    // Initialize AI scroll detection if enabled
+    if (aiDetectionEnabled) {
+      setTimeout(initializeAIDetection, 2000);
+    }
+  }
 
   // Re-detect on significant DOM changes (SPA navigation)
   let debounceTimer;
   const observer = new MutationObserver(() => {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(detectProducts, 2000);
+
+    // Re-scan for new images if AI is enabled
+    if (aiDetectionEnabled && intersectionObserver) {
+      setTimeout(observeNewImages, 1000);
+    }
   });
 
   observer.observe(document.body, {
@@ -241,6 +273,202 @@
       .filter(p => p.confidence >= 0.5)
       .sort((a, b) => b.confidence - a.confidence)
       .slice(0, 3);  // Max 3 products
+  }
+
+  // =============================================
+  // AI-Powered Scroll Detection
+  // =============================================
+
+  function initializeAIDetection() {
+    console.log('Amazon Price Finder: AI detection enabled');
+
+    // Create Intersection Observer with prefetch margin
+    intersectionObserver = new IntersectionObserver(handleImageIntersection, {
+      rootMargin: '500px 0px', // Prefetch 500px above/below viewport
+      threshold: 0.1
+    });
+
+    // Observe existing images
+    observeNewImages();
+
+    // Listen for messages from sidepanel
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message.type === 'RESCAN_PAGE_AI') {
+        processedUrls.clear();
+        imageQueue.clear();
+        observeNewImages();
+      }
+    });
+  }
+
+  function observeNewImages() {
+    const images = document.querySelectorAll('img');
+
+    images.forEach(img => {
+      // Only observe images that meet criteria
+      if (shouldObserveImage(img)) {
+        intersectionObserver.observe(img);
+      }
+    });
+  }
+
+  function shouldObserveImage(img) {
+    // Skip tiny images (icons, spacers)
+    if (img.naturalWidth < 80 || img.naturalHeight < 80) {
+      // Wait for load if not loaded
+      if (!img.complete) return true;
+      return false;
+    }
+
+    // Skip already processed
+    const url = img.src || img.dataset.src;
+    if (!url || processedUrls.has(url)) return false;
+
+    // Skip known non-product patterns
+    const skipPatterns = [
+      /logo/i, /icon/i, /avatar/i, /banner/i,
+      /sprite/i, /button/i, /social/i, /payment/i,
+      /flag/i, /arrow/i, /loading/i, /placeholder/i
+    ];
+
+    const urlAndAlt = url + (img.alt || '');
+    for (const pattern of skipPatterns) {
+      if (pattern.test(urlAndAlt)) return false;
+    }
+
+    return true;
+  }
+
+  function handleImageIntersection(entries) {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const img = entry.target;
+        const url = img.src || img.dataset.src;
+
+        if (url && !processedUrls.has(url) && !imageQueue.has(url)) {
+          // Add to queue
+          imageQueue.set(url, { element: img, queued: Date.now() });
+
+          // Debounce processing
+          clearTimeout(aiDebounceTimer);
+          aiDebounceTimer = setTimeout(processImageQueue, 500);
+        }
+
+        // Stop observing this image
+        intersectionObserver.unobserve(img);
+      }
+    });
+  }
+
+  async function processImageQueue() {
+    if (imageQueue.size === 0) return;
+
+    // Get batch of images (max 5)
+    const batch = [];
+    const urls = [...imageQueue.keys()].slice(0, 5);
+
+    for (const url of urls) {
+      const item = imageQueue.get(url);
+      imageQueue.delete(url);
+      processedUrls.add(url);
+
+      try {
+        const base64 = await imageToBase64(item.element);
+        if (base64) {
+          batch.push({
+            url,
+            base64,
+            mimeType: getMimeType(url)
+          });
+        }
+      } catch (e) {
+        console.log('Could not convert image:', e);
+      }
+    }
+
+    if (batch.length === 0) return;
+
+    console.log(`Amazon Price Finder: Analyzing ${batch.length} images with AI...`);
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'ANALYZE_PRODUCTS_AI',
+        images: batch
+      });
+
+      if (response?.success && response.products?.length > 0) {
+        console.log('Amazon Price Finder: AI detected products:', response.products);
+
+        // Send to sidepanel
+        chrome.runtime.sendMessage({
+          type: 'AI_DETECTED_PRODUCTS',
+          products: response.products
+        });
+      }
+    } catch (e) {
+      console.error('AI analysis error:', e);
+    }
+
+    // Process remaining queue
+    if (imageQueue.size > 0) {
+      setTimeout(processImageQueue, 1000);
+    }
+  }
+
+  function imageToBase64(img) {
+    return new Promise((resolve, reject) => {
+      // Wait for image to load if needed
+      if (!img.complete) {
+        img.onload = () => convertToBase64(img, resolve, reject);
+        img.onerror = () => reject(new Error('Image failed to load'));
+        return;
+      }
+      convertToBase64(img, resolve, reject);
+    });
+  }
+
+  function convertToBase64(img, resolve, reject) {
+    try {
+      const canvas = document.createElement('canvas');
+
+      // Limit size for efficiency
+      const maxSize = 512;
+      let width = img.naturalWidth;
+      let height = img.naturalHeight;
+
+      if (width > maxSize || height > maxSize) {
+        const ratio = Math.min(maxSize / width, maxSize / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Get base64 without data URL prefix
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      const base64 = dataUrl.split(',')[1];
+
+      resolve(base64);
+    } catch (e) {
+      // CORS or other error
+      reject(e);
+    }
+  }
+
+  function getMimeType(url) {
+    const ext = url.split('.').pop()?.toLowerCase().split('?')[0];
+    const mimeTypes = {
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'gif': 'image/gif',
+      'webp': 'image/webp'
+    };
+    return mimeTypes[ext] || 'image/jpeg';
   }
 
   console.log('Amazon Price Finder content script loaded');

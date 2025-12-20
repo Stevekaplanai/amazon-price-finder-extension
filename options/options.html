@@ -144,6 +144,42 @@
       </div>
     </section>
 
+    <!-- AI Detection Settings -->
+    <section class="setting-group">
+      <h2>AI Product Detection</h2>
+      <p class="description">Use Gemini Vision AI to detect products as you scroll</p>
+
+      <div class="setting-row">
+        <label class="toggle-label">
+          <span>Enable AI detection</span>
+          <input type="checkbox" id="aiDetectionEnabled" class="toggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-row api-key-row">
+        <label>Gemini API Key</label>
+        <div class="api-key-input-group">
+          <input type="password" id="geminiApiKey" placeholder="Enter your API key" class="api-key-input">
+          <button type="button" id="toggleApiKey" class="toggle-visibility-btn" title="Show/Hide">
+            <span class="eye-icon">Show</span>
+          </button>
+          <button type="button" id="testApiKey" class="btn-test">Test</button>
+        </div>
+      </div>
+
+      <div id="apiKeyStatus" class="api-key-status"></div>
+
+      <div class="api-key-help">
+        <p>To get a Gemini API key:</p>
+        <ol>
+          <li>Go to <a href="https://aistudio.google.com/apikey" target="_blank">Google AI Studio</a></li>
+          <li>Click "Create API Key"</li>
+          <li>Copy and paste the key above</li>
+        </ol>
+      </div>
+    </section>
+
     <!-- Saved Alerts List -->
     <section class="setting-group">
       <h2>Active Price Alerts</h2>

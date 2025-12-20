@@ -6,6 +6,11 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [1000, 2000, 4000]; // Exponential backoff
 
+// AI Detection Cache (by image URL hash)
+const aiDetectionCache = new Map();
+const AI_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
+const AI_RATE_LIMIT = { calls: 0, resetTime: 0, maxCalls: 10, windowMs: 60000 };
+
 // Marketplace configurations
 const MARKETPLACES = {
   'com': { domain: 'www.amazon.com', currency: '$', name: 'US' },
@@ -104,6 +109,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chrome.alarms.clear('priceCheck');
       }
       break;
+
+    case 'ANALYZE_PRODUCTS_AI':
+      analyzeProductsWithAI(message.images)
+        .then(products => sendResponse({ success: true, products }))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
   }
 });
 
@@ -208,87 +219,112 @@ async function handleAmazonSearch(query, marketplace, retryAttempt = 0) {
   }
 }
 
-// Parse Amazon search results HTML
+// Parse Amazon search results HTML using regex (DOMParser not available in service workers)
 function parseAmazonResults(html, config) {
   const results = [];
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, 'text/html');
 
-  const productCards = doc.querySelectorAll('[data-component-type="s-search-result"]');
+  // Find all search result cards by data-asin attribute
+  const cardRegex = /<div[^>]*data-component-type="s-search-result"[^>]*data-asin="([A-Z0-9]+)"[^>]*>([\s\S]*?)(?=<div[^>]*data-component-type="s-search-result"|<\/div>\s*<\/div>\s*<\/div>\s*<\/div>\s*<\/div>\s*$)/gi;
 
-  productCards.forEach((card, index) => {
-    if (index >= 10) return;
+  // Simpler approach: find all ASINs and extract data around them
+  const asinMatches = html.matchAll(/data-asin="([A-Z0-9]{10})"/g);
+  const asins = [...new Set([...asinMatches].map(m => m[1]).filter(a => a.length === 10))];
 
+  for (const asin of asins.slice(0, 10)) {
     try {
-      const product = extractProductData(card, config);
+      const product = extractProductDataRegex(html, asin, config);
       if (product && product.title && product.price) {
         results.push(product);
       }
     } catch (e) {
-      console.error('Error parsing product card:', e);
+      console.error('Error parsing product:', e);
     }
-  });
+  }
 
   return results;
 }
 
-// Extract product data from a search result card
-function extractProductData(card, config) {
-  const asin = card.getAttribute('data-asin');
-  if (!asin) return null;
+// Extract product data using regex
+function extractProductDataRegex(html, asin, config) {
+  // Find the section containing this ASIN
+  const asinIndex = html.indexOf(`data-asin="${asin}"`);
+  if (asinIndex === -1) return null;
 
-  const titleElement = card.querySelector('h2 a span') ||
-                       card.querySelector('[data-cy="title-recipe"] span') ||
-                       card.querySelector('.a-text-normal');
-  const title = titleElement?.textContent?.trim();
+  // Get a chunk of HTML around this ASIN (product card is usually within 10KB)
+  const start = Math.max(0, asinIndex - 1000);
+  const end = Math.min(html.length, asinIndex + 10000);
+  const chunk = html.substring(start, end);
 
-  const linkElement = card.querySelector('h2 a') || card.querySelector('a.a-link-normal');
-  const url = linkElement ? `https://${config.domain}${linkElement.getAttribute('href')}` : null;
+  // Extract title - look for h2 > a > span pattern
+  let title = null;
+  const titleMatch = chunk.match(/<h2[^>]*>[\s\S]*?<a[^>]*>[\s\S]*?<span[^>]*>([^<]+)<\/span>/i) ||
+                     chunk.match(/class="a-text-normal"[^>]*>([^<]+)</i) ||
+                     chunk.match(/<span[^>]*class="[^"]*a-text-normal[^"]*"[^>]*>([^<]+)</i);
+  if (titleMatch) {
+    title = titleMatch[1].trim().replace(/&amp;/g, '&').replace(/&quot;/g, '"');
+  }
 
-  const priceWhole = card.querySelector('.a-price-whole');
-  const priceFraction = card.querySelector('.a-price-fraction');
+  // Extract URL
+  let url = null;
+  const urlMatch = chunk.match(/<a[^>]*href="(\/[^"]*\/dp\/[A-Z0-9]{10}[^"]*)"/i) ||
+                   chunk.match(/<a[^>]*href="(\/dp\/[A-Z0-9]{10}[^"]*)"/i);
+  if (urlMatch) {
+    url = `https://${config.domain}${urlMatch[1].split('"')[0]}`;
+  }
 
+  // Extract price
   let price = null;
   let priceValue = null;
-  if (priceWhole) {
-    const whole = priceWhole.textContent.replace(/[^\d]/g, '');
-    const fraction = priceFraction?.textContent || '00';
+
+  // Try whole + fraction format first
+  const wholeMatch = chunk.match(/class="a-price-whole">([^<]+)</);
+  const fractionMatch = chunk.match(/class="a-price-fraction">([^<]+)</);
+
+  if (wholeMatch) {
+    const whole = wholeMatch[1].replace(/[^\d]/g, '');
+    const fraction = fractionMatch ? fractionMatch[1].replace(/[^\d]/g, '') : '00';
     price = `${config.currency}${whole}.${fraction}`;
     priceValue = parseFloat(`${whole}.${fraction}`);
   }
 
+  // Try offscreen price as fallback
   if (!price) {
-    const offscreenPrice = card.querySelector('.a-offscreen');
-    if (offscreenPrice) {
-      price = offscreenPrice.textContent.trim();
-      const priceMatch = price.match(/[\d,.]+/);
-      priceValue = priceMatch ? parseFloat(priceMatch[0].replace(',', '')) : null;
+    const offscreenMatch = chunk.match(/class="a-offscreen">([^<]+)</);
+    if (offscreenMatch) {
+      price = offscreenMatch[1].trim();
+      const numMatch = price.match(/[\d,.]+/);
+      priceValue = numMatch ? parseFloat(numMatch[0].replace(',', '')) : null;
     }
   }
 
-  const imgElement = card.querySelector('img.s-image');
-  const image = imgElement?.getAttribute('src');
+  // Extract image
+  let image = null;
+  const imgMatch = chunk.match(/<img[^>]*class="[^"]*s-image[^"]*"[^>]*src="([^"]+)"/i) ||
+                   chunk.match(/src="(https:\/\/m\.media-amazon\.com\/images\/I\/[^"]+)"/i);
+  if (imgMatch) {
+    image = imgMatch[1];
+  }
 
-  const ratingElement = card.querySelector('.a-icon-star-small span') ||
-                        card.querySelector('[aria-label*="out of 5 stars"]');
+  // Extract rating
   let rating = null;
-  if (ratingElement) {
-    const ratingText = ratingElement.getAttribute('aria-label') || ratingElement.textContent;
-    const ratingMatch = ratingText?.match(/(\d+\.?\d*)/);
-    rating = ratingMatch ? parseFloat(ratingMatch[1]) : null;
+  const ratingMatch = chunk.match(/(\d\.?\d?)\s*out of 5 stars/i) ||
+                      chunk.match(/aria-label="(\d\.?\d?)\s*out of 5/i);
+  if (ratingMatch) {
+    rating = parseFloat(ratingMatch[1]);
   }
 
-  const reviewElement = card.querySelector('[aria-label*="ratings"]') ||
-                        card.querySelector('span.a-size-base.s-underline-text');
+  // Extract review count
   let reviews = null;
-  if (reviewElement) {
-    const reviewText = reviewElement.getAttribute('aria-label') || reviewElement.textContent;
-    const reviewMatch = reviewText?.match(/[\d,]+/);
-    reviews = reviewMatch ? reviewMatch[0] : null;
+  const reviewMatch = chunk.match(/aria-label="([\d,]+)\s*ratings?"/i) ||
+                      chunk.match(/([\d,]+)\s*ratings?/i);
+  if (reviewMatch) {
+    reviews = reviewMatch[1];
   }
 
-  const isPrime = card.querySelector('[aria-label*="Prime"]') !== null ||
-                  card.querySelector('.s-prime') !== null;
+  // Check for Prime
+  const isPrime = chunk.includes('aria-label="Amazon Prime"') ||
+                  chunk.includes('a-icon-prime') ||
+                  chunk.includes('s-prime');
 
   return {
     asin,
@@ -303,6 +339,7 @@ function extractProductData(card, config) {
     marketplace: config.name
   };
 }
+
 
 // Price Alerts Functions
 async function setPriceAlert(alert) {
@@ -432,6 +469,167 @@ async function getPriceHistory(asin) {
   const key = `${marketplace}:${asin}`;
 
   return history[key] || null;
+}
+
+// AI Product Detection Functions
+
+// Simple hash function for cache keys
+function hashString(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return hash.toString(36);
+}
+
+// Check rate limit
+function checkRateLimit() {
+  const now = Date.now();
+  if (now > AI_RATE_LIMIT.resetTime) {
+    AI_RATE_LIMIT.calls = 0;
+    AI_RATE_LIMIT.resetTime = now + AI_RATE_LIMIT.windowMs;
+  }
+  if (AI_RATE_LIMIT.calls >= AI_RATE_LIMIT.maxCalls) {
+    return false;
+  }
+  AI_RATE_LIMIT.calls++;
+  return true;
+}
+
+// Analyze multiple product images with Gemini Vision AI
+async function analyzeProductsWithAI(images) {
+  const settings = (await chrome.storage.sync.get('settings')).settings;
+
+  if (!settings?.aiDetectionEnabled || !settings?.geminiApiKey) {
+    throw new Error('AI detection not configured');
+  }
+
+  const apiKey = settings.geminiApiKey;
+  const results = [];
+  const uncachedImages = [];
+
+  // Check cache first
+  for (const img of images) {
+    const cacheKey = hashString(img.url);
+    const cached = aiDetectionCache.get(cacheKey);
+
+    if (cached && Date.now() - cached.timestamp < AI_CACHE_DURATION) {
+      if (cached.product) {
+        results.push({ ...cached.product, imageUrl: img.url, fromCache: true });
+      }
+    } else {
+      uncachedImages.push(img);
+    }
+  }
+
+  // Process uncached images in batches of 3
+  const batches = [];
+  for (let i = 0; i < uncachedImages.length; i += 3) {
+    batches.push(uncachedImages.slice(i, i + 3));
+  }
+
+  for (const batch of batches) {
+    if (!checkRateLimit()) {
+      console.log('AI rate limit reached, skipping batch');
+      continue;
+    }
+
+    try {
+      const batchResults = await analyzeImageBatch(batch, apiKey);
+      results.push(...batchResults);
+
+      // Cache results
+      for (let i = 0; i < batch.length; i++) {
+        const cacheKey = hashString(batch[i].url);
+        aiDetectionCache.set(cacheKey, {
+          product: batchResults[i]?.isProduct ? batchResults[i] : null,
+          timestamp: Date.now()
+        });
+      }
+    } catch (error) {
+      console.error('AI batch analysis error:', error);
+    }
+
+    // Small delay between batches
+    if (batches.indexOf(batch) < batches.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+
+  return results.filter(r => r && r.isProduct);
+}
+
+// Analyze a batch of images with Gemini
+async function analyzeImageBatch(images, apiKey) {
+  const parts = [
+    {
+      text: `Analyze these product images. For each image, identify if it shows a purchasable product (not ads, logos, banners, or UI elements).
+
+Return a JSON array with one object per image in order:
+[
+  {"isProduct": true/false, "name": "product name", "brand": "brand if visible"},
+  ...
+]
+
+Only set isProduct=true for actual products someone could buy. Be specific with product names.`
+    }
+  ];
+
+  // Add each image
+  for (const img of images) {
+    if (img.base64) {
+      parts.push({
+        inline_data: {
+          mime_type: img.mimeType || 'image/jpeg',
+          data: img.base64
+        }
+      });
+    }
+  }
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts }],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 1024
+        }
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error?.message || 'Gemini API error');
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+
+  // Extract JSON from response
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) {
+    return images.map(() => ({ isProduct: false }));
+  }
+
+  try {
+    const parsed = JSON.parse(jsonMatch[0]);
+    return parsed.map((item, index) => ({
+      ...item,
+      imageUrl: images[index]?.url,
+      confidence: 0.9,
+      source: 'ai-vision'
+    }));
+  } catch (e) {
+    console.error('Failed to parse AI response:', e);
+    return images.map(() => ({ isProduct: false }));
+  }
 }
 
 console.log('Amazon Price Finder v4.0 background service worker loaded');

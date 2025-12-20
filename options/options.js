@@ -16,6 +16,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const saveBtn = document.getElementById('saveBtn');
   const saveStatus = document.getElementById('saveStatus');
 
+  // AI Detection Elements
+  const aiDetectionEnabled = document.getElementById('aiDetectionEnabled');
+  const geminiApiKey = document.getElementById('geminiApiKey');
+  const toggleApiKeyBtn = document.getElementById('toggleApiKey');
+  const testApiKeyBtn = document.getElementById('testApiKey');
+  const apiKeyStatus = document.getElementById('apiKeyStatus');
+
   // Default settings
   const defaultSettings = {
     marketplace: 'com',
@@ -25,7 +32,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     historyEnabled: true,
     historyDuration: 30,
     autoDetect: true,
-    minConfidence: 0.5
+    minConfidence: 0.5,
+    aiDetectionEnabled: false,
+    geminiApiKey: ''
   };
 
   // Load settings
@@ -47,6 +56,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   saveBtn.addEventListener('click', saveSettings);
 
+  // API Key toggle visibility
+  toggleApiKeyBtn.addEventListener('click', () => {
+    const isPassword = geminiApiKey.type === 'password';
+    geminiApiKey.type = isPassword ? 'text' : 'password';
+    toggleApiKeyBtn.querySelector('.eye-icon').textContent = isPassword ? 'Hide' : 'Show';
+  });
+
+  // Test API Key
+  testApiKeyBtn.addEventListener('click', testGeminiApiKey);
+
   // Functions
   async function loadSettings() {
     const result = await chrome.storage.sync.get('settings');
@@ -63,11 +82,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     autoCheck.checked = settings.autoCheck;
     historyEnabled.checked = settings.historyEnabled;
     autoDetect.checked = settings.autoDetect;
+    aiDetectionEnabled.checked = settings.aiDetectionEnabled || false;
 
     // Selects
     checkInterval.value = settings.checkInterval;
     historyDuration.value = settings.historyDuration;
     minConfidence.value = settings.minConfidence;
+
+    // API Key
+    geminiApiKey.value = settings.geminiApiKey || '';
 
     // Show/hide check interval based on autoCheck
     checkIntervalRow.style.display = settings.autoCheck ? 'flex' : 'none';
@@ -82,7 +105,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       historyEnabled: historyEnabled.checked,
       historyDuration: parseInt(historyDuration.value),
       autoDetect: autoDetect.checked,
-      minConfidence: parseFloat(minConfidence.value)
+      minConfidence: parseFloat(minConfidence.value),
+      aiDetectionEnabled: aiDetectionEnabled.checked,
+      geminiApiKey: geminiApiKey.value.trim()
     };
 
     await chrome.storage.sync.set({ settings });
@@ -166,5 +191,50 @@ document.addEventListener('DOMContentLoaded', async () => {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  async function testGeminiApiKey() {
+    const apiKey = geminiApiKey.value.trim();
+
+    if (!apiKey) {
+      showApiKeyStatus('Please enter an API key first', 'error');
+      return;
+    }
+
+    showApiKeyStatus('Testing API key...', 'loading');
+    testApiKeyBtn.disabled = true;
+
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: 'Say "API key is valid" in exactly those words.' }]
+            }]
+          })
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        showApiKeyStatus('API key is valid! Gemini AI is ready to use.', 'success');
+      } else {
+        const error = await response.json();
+        const message = error.error?.message || 'Invalid API key';
+        showApiKeyStatus(`Error: ${message}`, 'error');
+      }
+    } catch (error) {
+      showApiKeyStatus(`Connection error: ${error.message}`, 'error');
+    } finally {
+      testApiKeyBtn.disabled = false;
+    }
+  }
+
+  function showApiKeyStatus(message, type) {
+    apiKeyStatus.textContent = message;
+    apiKeyStatus.className = 'api-key-status ' + type;
   }
 });

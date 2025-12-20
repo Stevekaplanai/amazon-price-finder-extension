@@ -54,10 +54,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // State
   let currentQuery = '';
   let lastDetectedProducts = [];
+  let aiDetectedProducts = [];
   let currentAlertProduct = null;
   let currentResults = [];
   let retryCount = 0;
   const MAX_RETRIES = 3;
+  let aiScanningActive = false;
 
   // Currency conversion rates (approximate)
   const CURRENCY_RATES = {
@@ -132,6 +134,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   chrome.runtime.onMessage.addListener((message) => {
     if (message.type === 'PRODUCTS_FROM_PAGE') {
       handleDetectedProducts(message.products);
+    }
+    if (message.type === 'AI_DETECTED_PRODUCTS') {
+      handleAIDetectedProducts(message.products);
     }
   });
 
@@ -330,8 +335,34 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function renderDetectedProducts(products) {
-    detectedProducts.innerHTML = products.map(product => `
-      <div class="detected-chip" data-name="${escapeHtml(product.name)}">
+    // Combine traditional and AI-detected products
+    const allProducts = [
+      ...products,
+      ...aiDetectedProducts.map(p => ({
+        name: p.name,
+        confidence: p.confidence || 0.9,
+        source: 'ai-vision',
+        brand: p.brand
+      }))
+    ];
+
+    // Deduplicate by name similarity
+    const seen = new Set();
+    const uniqueProducts = allProducts.filter(p => {
+      const key = p.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 30);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    if (uniqueProducts.length === 0) {
+      detectedProducts.innerHTML = '';
+      return;
+    }
+
+    detectedProducts.innerHTML = uniqueProducts.map(product => `
+      <div class="detected-chip ${product.source === 'ai-vision' ? 'ai-detected' : ''}" data-name="${escapeHtml(product.name)}">
+        ${product.source === 'ai-vision' ? '<span class="ai-badge">AI</span>' : ''}
         <span class="name">${escapeHtml(product.name)}</span>
         <span class="confidence">${Math.round(product.confidence * 100)}%</span>
       </div>
@@ -344,6 +375,38 @@ document.addEventListener('DOMContentLoaded', async () => {
         searchAmazon(name);
       });
     });
+  }
+
+  function handleAIDetectedProducts(products) {
+    if (!products || products.length === 0) return;
+
+    // Add new AI-detected products
+    for (const product of products) {
+      if (!product.name) continue;
+
+      // Check if already exists
+      const exists = aiDetectedProducts.some(p =>
+        p.name.toLowerCase().replace(/[^a-z0-9]/g, '') ===
+        product.name.toLowerCase().replace(/[^a-z0-9]/g, '')
+      );
+
+      if (!exists) {
+        aiDetectedProducts.push(product);
+      }
+    }
+
+    // Limit to 10 AI products
+    if (aiDetectedProducts.length > 10) {
+      aiDetectedProducts = aiDetectedProducts.slice(-10);
+    }
+
+    // Update UI
+    detectedSection.classList.remove('hidden');
+    emptyState.classList.add('hidden');
+    renderDetectedProducts(lastDetectedProducts);
+
+    // Show toast for new detections
+    showToast(`AI detected ${products.length} product${products.length > 1 ? 's' : ''}`);
   }
 
   function showResults(results, query) {
@@ -479,9 +542,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function requestPageRescan() {
     try {
+      // Clear AI detected products on rescan
+      aiDetectedProducts = [];
+
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id) {
         chrome.tabs.sendMessage(tab.id, { type: 'RESCAN_PAGE' }).catch(() => {});
+        // Also trigger AI rescan
+        chrome.tabs.sendMessage(tab.id, { type: 'RESCAN_PAGE_AI' }).catch(() => {});
       }
     } catch (e) {
       console.log('Could not request page rescan:', e);
