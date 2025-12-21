@@ -1,13 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Amazon Price Finder",
-  "version": "4.0.0",
+  "version": "5.0.0",
   "description": "Auto-detect products, compare Amazon prices, track price history, wishlists, currency converter, and get price drop alerts!",
   "permissions": [
     "activeTab",
     "sidePanel",
     "storage",
-    "scripting",
     "notifications",
     "alarms"
   ],
